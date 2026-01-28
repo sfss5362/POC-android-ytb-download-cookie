@@ -2,9 +2,8 @@ package com.example.ytdownloader.manager;
 
 import android.util.Log;
 
-import com.arthenica.ffmpegkit.FFmpegKit;
-import com.arthenica.ffmpegkit.FFmpegSession;
-import com.arthenica.ffmpegkit.ReturnCode;
+import com.arthenica.mobileffmpeg.Config;
+import com.arthenica.mobileffmpeg.FFmpeg;
 
 import java.io.File;
 
@@ -37,27 +36,36 @@ public class FFmpegHelper {
             outputFile.delete();
         }
 
-        String command = String.format("-i \"%s\" -i \"%s\" -c copy -shortest \"%s\"",
-                videoPath, audioPath, outputPath);
+        Config.enableStatisticsCallback(statistics -> {
+            // Progress callback (approximate)
+            Log.d(TAG, "FFmpeg progress: " + statistics.getTime());
+        });
 
-        Log.d(TAG, "Executing FFmpeg merge command: " + command);
+        String[] command = {
+                "-i", videoPath,
+                "-i", audioPath,
+                "-c", "copy",
+                "-shortest",
+                outputPath
+        };
 
-        FFmpegSession session = FFmpegKit.execute(command);
+        Log.d(TAG, "Executing FFmpeg merge command");
 
-        if (ReturnCode.isSuccess(session.getReturnCode())) {
+        int result = FFmpeg.execute(command);
+
+        if (result == 0) {
             // Success - cleanup temp files
             videoFile.delete();
             audioFile.delete();
             callback.onSuccess(outputPath);
         } else {
-            String errorMsg = "FFmpeg merge failed with code: " + session.getReturnCode();
+            String errorMsg = "FFmpeg merge failed with code: " + result;
             Log.e(TAG, errorMsg);
-            Log.e(TAG, "FFmpeg output: " + session.getOutput());
             callback.onError(errorMsg);
         }
     }
 
     public static void cancel() {
-        FFmpegKit.cancel();
+        FFmpeg.cancel();
     }
 }
