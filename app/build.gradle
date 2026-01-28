@@ -39,8 +39,7 @@ dependencies {
     // YouTube downloader library
     implementation 'com.github.sfss5362:java-youtube-downloader---fix-cookies:master-SNAPSHOT'
 
-    // FFmpeg for merging (FFmpegX-Android)
-    implementation 'com.github.mzgs:FFmpegX-Android:v2.2.1'
+    // No external FFmpeg needed - using Android MediaMuxer
 
     // Network
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

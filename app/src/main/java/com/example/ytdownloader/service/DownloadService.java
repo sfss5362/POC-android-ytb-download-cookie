@@ -254,7 +254,7 @@ public class DownloadService extends Service {
         notifyTaskUpdated(task);
         updateNotification("Merging: " + task.getTitle());
 
-        FFmpegHelper.mergeVideoAudio(this, videoPath, audioPath, outputPath, new FFmpegHelper.MergeCallback() {
+        FFmpegHelper.mergeVideoAudio(videoPath, audioPath, outputPath, new FFmpegHelper.MergeCallback() {
             @Override
             public void onProgress(int progress) {
                 // FFmpeg progress is hard to track, just show indeterminate
