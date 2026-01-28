@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">YT Downloader</string>
+    <string name="hint_url">Paste YouTube URL here</string>
+    <string name="btn_parse">Parse</string>
+    <string name="btn_download">Download</string>
+    <string name="option_video_only">Video Only</string>
+    <string name="option_audio_only">Audio Only</string>
+    <string name="option_best_quality">Best Quality (Merge)</string>
+    <string name="status_parsing">Parsing...</string>
+    <string name="status_downloading">Downloading...</string>
+    <string name="status_merging">Merging...</string>
+    <string name="status_completed">Completed</string>
+    <string name="status_failed">Failed</string>
+    <string name="error_invalid_url">Invalid YouTube URL</string>
+    <string name="error_network">Network error, please try again</string>
+    <string name="error_bot_detection">Bot detection triggered, please login</string>
+    <string name="login_hint">Please login to YouTube to continue</string>
+    <string name="login_success">Login successful!</string>
+    <string name="notification_channel_name">Download Progress</string>
+    <string name="notification_downloading">Downloading: %1$s</string>
+    <string name="no_downloads">No downloads yet</string>
+</resources>

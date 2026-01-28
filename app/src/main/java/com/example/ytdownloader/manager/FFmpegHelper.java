@@ -1,0 +1,71 @@
+package com.example.ytdownloader.manager;
+
+import android.util.Log;
+
+import com.arthenica.mobileffmpeg.Config;
+import com.arthenica.mobileffmpeg.FFmpeg;
+
+import java.io.File;
+
+public class FFmpegHelper {
+    private static final String TAG = "FFmpegHelper";
+
+    public interface MergeCallback {
+        void onProgress(int progress);
+        void onSuccess(String outputPath);
+        void onError(String error);
+    }
+
+    public static void mergeVideoAudio(String videoPath, String audioPath, String outputPath, MergeCallback callback) {
+        File videoFile = new File(videoPath);
+        File audioFile = new File(audioPath);
+
+        if (!videoFile.exists()) {
+            callback.onError("Video file not found");
+            return;
+        }
+
+        if (!audioFile.exists()) {
+            callback.onError("Audio file not found");
+            return;
+        }
+
+        // Delete output file if exists
+        File outputFile = new File(outputPath);
+        if (outputFile.exists()) {
+            outputFile.delete();
+        }
+
+        Config.enableStatisticsCallback(statistics -> {
+            // Progress callback (approximate)
+            Log.d(TAG, "FFmpeg progress: " + statistics.getTime());
+        });
+
+        String[] command = {
+                "-i", videoPath,
+                "-i", audioPath,
+                "-c", "copy",
+                "-shortest",
+                outputPath
+        };
+
+        Log.d(TAG, "Executing FFmpeg merge command");
+
+        int result = FFmpeg.execute(command);
+
+        if (result == 0) {
+            // Success - cleanup temp files
+            videoFile.delete();
+            audioFile.delete();
+            callback.onSuccess(outputPath);
+        } else {
+            String errorMsg = "FFmpeg merge failed with code: " + result;
+            Log.e(TAG, errorMsg);
+            callback.onError(errorMsg);
+        }
+    }
+
+    public static void cancel() {
+        FFmpeg.cancel();
+    }
+}

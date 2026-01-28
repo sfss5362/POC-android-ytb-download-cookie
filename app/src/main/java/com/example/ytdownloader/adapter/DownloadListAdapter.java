@@ -1,0 +1,156 @@
+package com.example.ytdownloader.adapter;
+
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.core.content.FileProvider;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.bumptech.glide.Glide;
+import com.example.ytdownloader.R;
+import com.example.ytdownloader.model.DownloadTask;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapter.ViewHolder> {
+
+    private final Context context;
+    private final List<DownloadTask> tasks = new ArrayList<>();
+
+    public DownloadListAdapter(Context context) {
+        this.context = context;
+    }
+
+    public void addTask(DownloadTask task) {
+        tasks.add(0, task);
+        notifyItemInserted(0);
+    }
+
+    public void updateTask(DownloadTask task) {
+        for (int i = 0; i < tasks.size(); i++) {
+            if (tasks.get(i).getId().equals(task.getId())) {
+                tasks.set(i, task);
+                notifyItemChanged(i);
+                return;
+            }
+        }
+    }
+
+    public void setTasks(List<DownloadTask> newTasks) {
+        tasks.clear();
+        tasks.addAll(newTasks);
+        notifyDataSetChanged();
+    }
+
+    @NonNull
+    @Override
+    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        View view = LayoutInflater.from(context).inflate(R.layout.item_download, parent, false);
+        return new ViewHolder(view);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+        DownloadTask task = tasks.get(position);
+
+        holder.tvName.setText(task.getTitle());
+        holder.tvStatus.setText(task.getStatusText());
+
+        // Load thumbnail
+        if (task.getThumbnailUrl() != null) {
+            Glide.with(context)
+                    .load(task.getThumbnailUrl())
+                    .centerCrop()
+                    .into(holder.ivThumb);
+        }
+
+        // Update progress bar
+        switch (task.getStatus()) {
+            case COMPLETED:
+                holder.progressBar.setVisibility(View.GONE);
+                holder.btnAction.setImageResource(android.R.drawable.ic_menu_share);
+                holder.btnAction.setOnClickListener(v -> shareFile(task));
+                break;
+            case FAILED:
+            case CANCELLED:
+                holder.progressBar.setVisibility(View.GONE);
+                holder.btnAction.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+                holder.btnAction.setOnClickListener(null);
+                break;
+            case MERGING:
+                holder.progressBar.setVisibility(View.VISIBLE);
+                holder.progressBar.setIndeterminate(true);
+                holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
+                break;
+            default:
+                holder.progressBar.setVisibility(View.VISIBLE);
+                holder.progressBar.setIndeterminate(false);
+                holder.progressBar.setProgress(task.getProgress());
+                holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
+                break;
+        }
+
+        // Open file on click when completed
+        holder.itemView.setOnClickListener(v -> {
+            if (task.getStatus() == DownloadTask.Status.COMPLETED && task.getOutputPath() != null) {
+                openFile(task);
+            }
+        });
+    }
+
+    @Override
+    public int getItemCount() {
+        return tasks.size();
+    }
+
+    private void openFile(DownloadTask task) {
+        File file = new File(task.getOutputPath());
+        if (!file.exists()) return;
+
+        Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", file);
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(uri, "video/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        context.startActivity(intent);
+    }
+
+    private void shareFile(DownloadTask task) {
+        File file = new File(task.getOutputPath());
+        if (!file.exists()) return;
+
+        Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", file);
+        Intent intent = new Intent(Intent.ACTION_SEND);
+        intent.setType("video/*");
+        intent.putExtra(Intent.EXTRA_STREAM, uri);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        context.startActivity(Intent.createChooser(intent, "Share"));
+    }
+
+    static class ViewHolder extends RecyclerView.ViewHolder {
+        ImageView ivThumb;
+        TextView tvName;
+        TextView tvStatus;
+        ProgressBar progressBar;
+        ImageButton btnAction;
+
+        ViewHolder(View itemView) {
+            super(itemView);
+            ivThumb = itemView.findViewById(R.id.ivThumb);
+            tvName = itemView.findViewById(R.id.tvName);
+            tvStatus = itemView.findViewById(R.id.tvStatus);
+            progressBar = itemView.findViewById(R.id.progressBar);
+            btnAction = itemView.findViewById(R.id.btnAction);
+        }
+    }
+}
