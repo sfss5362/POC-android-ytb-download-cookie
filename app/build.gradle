@@ -39,8 +39,8 @@ dependencies {
     // YouTube downloader library
     implementation 'com.github.sfss5362:java-youtube-downloader---fix-cookies:master-SNAPSHOT'
 
-    // FFmpeg for merging
-    implementation 'com.arthenica:mobile-ffmpeg-min:4.4'
+    // FFmpeg for merging - TODO: Add local AAR or use alternative
+    // implementation 'com.arthenica:mobile-ffmpeg-min:4.4'
 
     // Network
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

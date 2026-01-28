@@ -192,12 +192,13 @@ public class DownloadService extends Service {
         notifyTaskUpdated(task);
         updateNotification("Downloading video: " + task.getTitle());
 
-        String videoTempPath = new File(cacheDir, task.getId() + "_video.mp4").getAbsolutePath();
-        String audioTempPath = new File(cacheDir, task.getId() + "_audio.m4a").getAbsolutePath();
+        // Download to output dir so files are kept if merge fails
+        String videoPath = new File(outputDir, filename + "_video.mp4").getAbsolutePath();
+        String audioPath = new File(outputDir, filename + "_audio.m4a").getAbsolutePath();
         String outputPath = new File(outputDir, filename + ".mp4").getAbsolutePath();
 
         // Download video first
-        youtubeService.downloadFormat(task.getVideoId(), task.getVideoItag(), cacheDir, task.getId() + "_video.mp4",
+        youtubeService.downloadFormat(task.getVideoId(), task.getVideoItag(), outputDir, filename + "_video.mp4",
                 new YoutubeService.DownloadCallback() {
                     @Override
                     public void onProgress(int progress) {
@@ -208,7 +209,7 @@ public class DownloadService extends Service {
                     @Override
                     public void onSuccess(String filePath) {
                         // Video done, download audio
-                        downloadAudioForMerge(task, cacheDir, audioTempPath, videoTempPath, outputPath);
+                        downloadAudioForMerge(task, outputDir, audioPath, videoPath, outputPath, filename);
                     }
 
                     @Override
@@ -220,12 +221,12 @@ public class DownloadService extends Service {
                 });
     }
 
-    private void downloadAudioForMerge(DownloadTask task, File cacheDir, String audioTempPath, String videoTempPath, String outputPath) {
+    private void downloadAudioForMerge(DownloadTask task, File outputDir, String audioPath, String videoPath, String outputPath, String filename) {
         task.setStatus(DownloadTask.Status.DOWNLOADING_AUDIO);
         notifyTaskUpdated(task);
         updateNotification("Downloading audio: " + task.getTitle());
 
-        youtubeService.downloadFormat(task.getVideoId(), task.getAudioItag(), cacheDir, task.getId() + "_audio.m4a",
+        youtubeService.downloadFormat(task.getVideoId(), task.getAudioItag(), outputDir, filename + "_audio.m4a",
                 new YoutubeService.DownloadCallback() {
                     @Override
                     public void onProgress(int progress) {
@@ -236,7 +237,7 @@ public class DownloadService extends Service {
                     @Override
                     public void onSuccess(String filePath) {
                         // Audio done, merge
-                        mergeFiles(task, videoTempPath, audioTempPath, outputPath);
+                        mergeFiles(task, videoPath, audioPath, outputPath);
                     }
 
                     @Override
@@ -270,9 +271,12 @@ public class DownloadService extends Service {
 
             @Override
             public void onError(String error) {
-                task.setErrorMessage(error);
-                task.setStatus(DownloadTask.Status.FAILED);
-                notifyTaskFailed(task);
+                // Merge failed but files are downloaded - mark as completed
+                task.setOutputPath(videoPath);
+                task.setErrorMessage("Merge skipped: " + error);
+                task.setStatus(DownloadTask.Status.COMPLETED);
+                notifyTaskCompleted(task);
+                updateNotification("Downloaded (no merge): " + task.getTitle());
             }
         });
     }
