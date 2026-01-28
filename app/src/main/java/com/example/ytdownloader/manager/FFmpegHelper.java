@@ -2,6 +2,9 @@ package com.example.ytdownloader.manager;
 
 import android.util.Log;
 
+import com.arthenica.mobileffmpeg.Config;
+import com.arthenica.mobileffmpeg.FFmpeg;
+
 import java.io.File;
 
 public class FFmpegHelper {
@@ -14,12 +17,55 @@ public class FFmpegHelper {
     }
 
     public static void mergeVideoAudio(String videoPath, String audioPath, String outputPath, MergeCallback callback) {
-        // FFmpeg library not available - merge not supported
-        // TODO: Add FFmpeg AAR manually to enable merge functionality
-        callback.onError("Merge not supported - FFmpeg library not available. Video and audio downloaded separately.");
+        File videoFile = new File(videoPath);
+        File audioFile = new File(audioPath);
+
+        if (!videoFile.exists()) {
+            callback.onError("Video file not found");
+            return;
+        }
+
+        if (!audioFile.exists()) {
+            callback.onError("Audio file not found");
+            return;
+        }
+
+        // Delete output file if exists
+        File outputFile = new File(outputPath);
+        if (outputFile.exists()) {
+            outputFile.delete();
+        }
+
+        Config.enableStatisticsCallback(statistics -> {
+            // Progress callback (approximate)
+            Log.d(TAG, "FFmpeg progress: " + statistics.getTime());
+        });
+
+        String[] command = {
+                "-i", videoPath,
+                "-i", audioPath,
+                "-c", "copy",
+                "-shortest",
+                outputPath
+        };
+
+        Log.d(TAG, "Executing FFmpeg merge command");
+
+        int result = FFmpeg.execute(command);
+
+        if (result == 0) {
+            // Success - cleanup temp files
+            videoFile.delete();
+            audioFile.delete();
+            callback.onSuccess(outputPath);
+        } else {
+            String errorMsg = "FFmpeg merge failed with code: " + result;
+            Log.e(TAG, errorMsg);
+            callback.onError(errorMsg);
+        }
     }
 
     public static void cancel() {
-        // No-op when FFmpeg not available
+        FFmpeg.cancel();
     }
 }
