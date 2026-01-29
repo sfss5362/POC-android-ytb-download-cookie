@@ -6,7 +6,7 @@
     <string name="btn_download">Download</string>
     <string name="option_video_only">Video Only</string>
     <string name="option_audio_only">Audio Only</string>
-    <string name="option_best_quality">Best Quality (Merge)</string>
+    <string name="option_best_quality">Best</string>
     <string name="status_parsing">Parsing...</string>
     <string name="status_downloading">Downloading...</string>
     <string name="status_merging">Merging...</string>

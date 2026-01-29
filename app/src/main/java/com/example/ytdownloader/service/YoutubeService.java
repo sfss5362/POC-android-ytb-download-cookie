@@ -1,8 +1,8 @@
 package com.example.ytdownloader.service;
 
 import android.content.Context;
-import android.util.Log;
 
+import com.example.ytdownloader.manager.AppLogger;
 import com.example.ytdownloader.manager.CookieStorage;
 import com.example.ytdownloader.model.VideoInfo;
 import com.github.kiulian.downloader.YoutubeDownloader;
@@ -52,22 +52,22 @@ public class YoutubeService {
 
     private void initDownloader() {
         String cookies = cookieStorage.getCookies();
-        Log.d(TAG, "initDownloader - cookies present: " + (cookies != null && !cookies.isEmpty()));
+        AppLogger.d(TAG, "initDownloader - cookies present: " + (cookies != null && !cookies.isEmpty()));
         if (cookies != null && !cookies.isEmpty()) {
             try {
                 File cookieFile = createCookieFile(cookies);
-                Log.d(TAG, "Cookie file created: " + cookieFile.getAbsolutePath());
+                AppLogger.d(TAG, "Cookie file created: " + cookieFile.getAbsolutePath());
                 com.github.kiulian.downloader.Config config = new com.github.kiulian.downloader.Config.Builder()
                         .cookies(cookieFile.getAbsolutePath())
                         .build();
                 downloader = new YoutubeDownloader(config);
-                Log.d(TAG, "YoutubeDownloader initialized with cookies");
+                AppLogger.i(TAG, "YoutubeDownloader initialized with cookies");
             } catch (IOException e) {
-                Log.e(TAG, "Failed to create cookie file", e);
+                AppLogger.e(TAG, "Failed to create cookie file", e);
                 downloader = new YoutubeDownloader();
             }
         } else {
-            Log.d(TAG, "YoutubeDownloader initialized without cookies");
+            AppLogger.d(TAG, "YoutubeDownloader initialized without cookies");
             downloader = new YoutubeDownloader();
         }
     }
@@ -116,21 +116,21 @@ public class YoutubeService {
     public void parseVideo(String videoId, ParseCallback callback) {
         new Thread(() -> {
             try {
-                Log.d(TAG, "Parsing video: " + videoId);
-                Log.d(TAG, "Has cookies: " + (cookieStorage.getCookies() != null && !cookieStorage.getCookies().isEmpty()));
+                AppLogger.i(TAG, "Parsing video: " + videoId);
+                AppLogger.d(TAG, "Has cookies: " + (cookieStorage.getCookies() != null && !cookieStorage.getCookies().isEmpty()));
 
                 RequestVideoInfo request = new RequestVideoInfo(videoId);
                 Response<com.github.kiulian.downloader.model.videos.VideoInfo> response = downloader.getVideoInfo(request);
 
                 if (!response.ok()) {
                     String error = response.error().getMessage();
-                    Log.e(TAG, "Parse failed: " + error);
+                    AppLogger.e(TAG, "Parse failed: " + error);
                     if (response.error() != null) {
-                        Log.e(TAG, "Error details:", response.error());
+                        AppLogger.e(TAG, "Error details:", response.error());
                     }
                     // Check for bot detection / login required
                     if (error != null && (error.contains(BOT_DETECTION_MESSAGE) || error.contains(LOGIN_REQUIRED))) {
-                        Log.w(TAG, "Bot detection / Login required - triggering WebView login");
+                        AppLogger.w(TAG, "Bot detection / Login required - triggering WebView login");
                         callback.onBotDetected();
                     } else {
                         callback.onError(error != null ? error : "Failed to parse video");
@@ -138,7 +138,7 @@ public class YoutubeService {
                     return;
                 }
 
-                Log.d(TAG, "Parse successful");
+                AppLogger.i(TAG, "Parse successful");
 
                 com.github.kiulian.downloader.model.videos.VideoInfo ytVideoInfo = response.data();
 
@@ -193,14 +193,13 @@ public class YoutubeService {
                 callback.onSuccess(videoInfo);
 
             } catch (Exception e) {
-                Log.e(TAG, "Exception parsing video: " + e.getClass().getName() + " - " + e.getMessage());
-                e.printStackTrace();
+                AppLogger.e(TAG, "Exception parsing video: " + e.getClass().getName(), e);
                 String message = e.getMessage();
                 if (message != null && (message.contains(BOT_DETECTION_MESSAGE) || message.contains(LOGIN_REQUIRED))) {
-                    Log.w(TAG, "Bot detection triggered (exception)");
+                    AppLogger.w(TAG, "Bot detection triggered (exception)");
                     callback.onBotDetected();
                 } else {
-                    Log.e(TAG, "Parse error: " + message);
+                    AppLogger.e(TAG, "Parse error: " + message);
                     callback.onError(message != null ? message : "Unknown error");
                 }
             }
@@ -210,21 +209,58 @@ public class YoutubeService {
     public void downloadFormat(String videoId, String itag, File outputDir, String filename, DownloadCallback callback) {
         new Thread(() -> {
             try {
+                AppLogger.i(TAG, "Download start - videoId: " + videoId + ", itag: " + itag + ", dir: " + outputDir.getAbsolutePath() + ", file: " + filename);
+
+                // Ensure output directory exists
+                if (!outputDir.exists()) {
+                    boolean created = outputDir.mkdirs();
+                    AppLogger.d(TAG, "Output dir created: " + created + " - " + outputDir.getAbsolutePath());
+                }
+                AppLogger.d(TAG, "Output dir writable: " + outputDir.canWrite() + ", exists: " + outputDir.exists());
+
+                AppLogger.d(TAG, "Re-parsing video info for download...");
                 RequestVideoInfo infoRequest = new RequestVideoInfo(videoId);
                 Response<com.github.kiulian.downloader.model.videos.VideoInfo> infoResponse = downloader.getVideoInfo(infoRequest);
 
                 if (!infoResponse.ok()) {
-                    callback.onError(infoResponse.error().getMessage());
+                    String error = infoResponse.error() != null ? infoResponse.error().getMessage() : "Unknown error";
+                    AppLogger.e(TAG, "Download re-parse failed: " + error);
+                    if (infoResponse.error() != null) {
+                        AppLogger.e(TAG, "Re-parse error details:", infoResponse.error());
+                    }
+                    callback.onError("Re-parse failed: " + error);
                     return;
                 }
 
                 com.github.kiulian.downloader.model.videos.VideoInfo videoInfo = infoResponse.data();
-                Format format = findFormatByItag(videoInfo, itag);
+                AppLogger.i(TAG, "Re-parse success. Video formats: " + videoInfo.videoFormats().size()
+                        + ", Audio formats: " + videoInfo.audioFormats().size()
+                        + ", VideoWithAudio formats: " + videoInfo.videoWithAudioFormats().size());
 
+                Format format = findFormatByItag(videoInfo, itag);
                 if (format == null) {
-                    callback.onError("Format not found");
+                    AppLogger.e(TAG, "Format not found for itag: " + itag);
+                    // List available itags for debugging
+                    StringBuilder available = new StringBuilder("Available itags - Video: ");
+                    for (VideoFormat vf : videoInfo.videoFormats()) {
+                        available.append(vf.itag().id()).append(" ");
+                    }
+                    available.append(", Audio: ");
+                    for (AudioFormat af : videoInfo.audioFormats()) {
+                        available.append(af.itag().id()).append(" ");
+                    }
+                    available.append(", VideoWithAudio: ");
+                    for (VideoWithAudioFormat vaf : videoInfo.videoWithAudioFormats()) {
+                        available.append(vaf.itag().id()).append(" ");
+                    }
+                    AppLogger.d(TAG, available.toString());
+                    callback.onError("Format not found for itag: " + itag);
                     return;
                 }
+
+                AppLogger.i(TAG, "Format found: mimeType=" + format.mimeType()
+                        + ", contentLength=" + (format.contentLength() != null ? format.contentLength() : "null")
+                        + ", url=" + (format.url() != null ? format.url().substring(0, Math.min(100, format.url().length())) + "..." : "null"));
 
                 RequestVideoFileDownload downloadRequest = new RequestVideoFileDownload(format)
                         .saveTo(outputDir)
@@ -238,20 +274,55 @@ public class YoutubeService {
 
                             @Override
                             public void onFinished(File file) {
-                                callback.onSuccess(file.getAbsolutePath());
+                                AppLogger.i(TAG, "Download callback onFinished: " + file.getAbsolutePath() + ", size: " + file.length());
                             }
 
                             @Override
                             public void onError(Throwable throwable) {
-                                callback.onError(throwable.getMessage());
+                                AppLogger.e(TAG, "Download callback onError", throwable);
                             }
                         });
 
-                downloader.downloadVideoFile(downloadRequest);
+                AppLogger.d(TAG, "Starting file download...");
+                Response<File> downloadResponse = downloader.downloadVideoFile(downloadRequest);
+
+                if (downloadResponse.ok()) {
+                    File file = downloadResponse.data();
+                    AppLogger.i(TAG, "Download response OK, file: " + (file != null ? file.getAbsolutePath() : "null"));
+                    if (file != null && file.exists()) {
+                        AppLogger.i(TAG, "File exists, size: " + file.length() + " bytes");
+                        callback.onSuccess(file.getAbsolutePath());
+                    } else {
+                        // Try to find file manually
+                        File expected = new File(outputDir, filename);
+                        AppLogger.d(TAG, "Response file null/missing, checking expected path: " + expected.getAbsolutePath());
+                        if (expected.exists()) {
+                            AppLogger.i(TAG, "Found file at expected path, size: " + expected.length() + " bytes");
+                            callback.onSuccess(expected.getAbsolutePath());
+                        } else {
+                            // List files in output dir for debugging
+                            String[] files = outputDir.list();
+                            AppLogger.e(TAG, "Video file not found at: " + expected.getAbsolutePath());
+                            if (files != null) {
+                                AppLogger.d(TAG, "Files in output dir (" + files.length + "): " + String.join(", ", files));
+                            } else {
+                                AppLogger.d(TAG, "Output dir listing returned null");
+                            }
+                            callback.onError("Video file not found at: " + expected.getAbsolutePath());
+                        }
+                    }
+                } else {
+                    String error = downloadResponse.error() != null ? downloadResponse.error().getMessage() : "Download failed";
+                    AppLogger.e(TAG, "Download response error: " + error);
+                    if (downloadResponse.error() != null) {
+                        AppLogger.e(TAG, "Download error details:", downloadResponse.error());
+                    }
+                    callback.onError("Download error: " + error);
+                }
 
             } catch (Exception e) {
-                Log.e(TAG, "Error downloading", e);
-                callback.onError(e.getMessage());
+                AppLogger.e(TAG, "Exception during download", e);
+                callback.onError("Download exception: " + e.getMessage());
             }
         }).start();
     }

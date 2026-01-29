@@ -41,13 +41,34 @@
                     android:maxLines="2"
                     android:ellipsize="end" />
 
-                <TextView
-                    android:id="@+id/tvStatus"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/on_surface_secondary"
-                    android:textSize="12sp"
-                    android:layout_marginTop="4dp" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="4dp">
+
+                    <TextView
+                        android:id="@+id/tvStatus"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textColor="@color/on_surface_secondary"
+                        android:textSize="12sp"
+                        android:maxLines="1"
+                        android:ellipsize="end" />
+
+                    <ImageButton
+                        android:id="@+id/btnFolder"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@android:drawable/ic_menu_mylocation"
+                        android:scaleType="centerInside"
+                        android:visibility="gone"
+                        android:contentDescription="File path" />
+
+                </LinearLayout>
 
             </LinearLayout>
 

@@ -10,6 +10,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.FileProvider;
@@ -27,9 +28,14 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
 
     private final Context context;
     private final List<DownloadTask> tasks = new ArrayList<>();
+    private Runnable onTaskRemovedListener;
 
     public DownloadListAdapter(Context context) {
         this.context = context;
+    }
+
+    public void setOnTaskRemovedListener(Runnable listener) {
+        this.onTaskRemovedListener = listener;
     }
 
     public void addTask(DownloadTask task) {
@@ -75,29 +81,39 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
                     .into(holder.ivThumb);
         }
 
-        // Update progress bar
+        // Update progress bar and folder button
         switch (task.getStatus()) {
             case COMPLETED:
                 holder.progressBar.setVisibility(View.GONE);
                 holder.btnAction.setImageResource(android.R.drawable.ic_menu_share);
                 holder.btnAction.setOnClickListener(v -> shareFile(task));
+                holder.btnFolder.setVisibility(View.VISIBLE);
+                holder.btnFolder.setOnClickListener(v -> {
+                    if (task.getOutputPath() != null) {
+                        File f = new File(task.getOutputPath());
+                        Toast.makeText(context, f.getParent(), Toast.LENGTH_LONG).show();
+                    }
+                });
                 break;
             case FAILED:
             case CANCELLED:
                 holder.progressBar.setVisibility(View.GONE);
                 holder.btnAction.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-                holder.btnAction.setOnClickListener(null);
+                holder.btnAction.setOnClickListener(v -> removeTask(holder.getAdapterPosition()));
+                holder.btnFolder.setVisibility(View.GONE);
                 break;
             case MERGING:
                 holder.progressBar.setVisibility(View.VISIBLE);
                 holder.progressBar.setIndeterminate(true);
                 holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
+                holder.btnFolder.setVisibility(View.GONE);
                 break;
             default:
                 holder.progressBar.setVisibility(View.VISIBLE);
                 holder.progressBar.setIndeterminate(false);
                 holder.progressBar.setProgress(task.getProgress());
                 holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
+                holder.btnFolder.setVisibility(View.GONE);
                 break;
         }
 
@@ -112,6 +128,16 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
     @Override
     public int getItemCount() {
         return tasks.size();
+    }
+
+    private void removeTask(int position) {
+        if (position >= 0 && position < tasks.size()) {
+            tasks.remove(position);
+            notifyItemRemoved(position);
+            if (onTaskRemovedListener != null) {
+                onTaskRemovedListener.run();
+            }
+        }
     }
 
     private void openFile(DownloadTask task) {
@@ -143,6 +169,7 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
         TextView tvStatus;
         ProgressBar progressBar;
         ImageButton btnAction;
+        ImageButton btnFolder;
 
         ViewHolder(View itemView) {
             super(itemView);
@@ -151,6 +178,7 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
             tvStatus = itemView.findViewById(R.id.tvStatus);
             progressBar = itemView.findViewById(R.id.progressBar);
             btnAction = itemView.findViewById(R.id.btnAction);
+            btnFolder = itemView.findViewById(R.id.btnFolder);
         }
     }
 }

@@ -13,7 +13,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.util.Log;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.ImageView;
@@ -36,6 +35,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.example.ytdownloader.adapter.DownloadListAdapter;
+import com.example.ytdownloader.manager.AppLogger;
 import com.example.ytdownloader.model.DownloadTask;
 import com.example.ytdownloader.model.VideoInfo;
 import com.example.ytdownloader.service.DownloadService;
@@ -43,15 +43,10 @@ import com.example.ytdownloader.service.YoutubeService;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 
-public class MainActivity extends AppCompatActivity implements DownloadService.DownloadListener {
+public class MainActivity extends AppCompatActivity implements DownloadService.DownloadListener, AppLogger.LogListener {
     private static final String TAG = "MainActivity";
     private static final int REQUEST_NOTIFICATION_PERMISSION = 1001;
 
@@ -69,11 +64,13 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private TextView tvEmpty;
 
     // Log UI
+    private View logToggleBar;
+    private TextView tvLogToggle;
     private CardView cardLog;
     private TextView tvLog;
     private MaterialButton btnCopyLog;
     private MaterialButton btnClearLog;
-    private final StringBuilder logBuffer = new StringBuilder();
+    private boolean logExpanded = true;
 
     private YoutubeService youtubeService;
     private DownloadService downloadService;
@@ -84,7 +81,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private VideoInfo currentVideoInfo;
     private String pendingVideoId;
 
-    private final SimpleDateFormat logTimeFmt = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
 
     private final ActivityResultLauncher<Intent> webViewLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
@@ -133,6 +129,8 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         mainHandler = new Handler(Looper.getMainLooper());
         youtubeService = new YoutubeService(this);
 
+        AppLogger.addListener(this);
+
         initViews();
         setupListeners();
         startAndBindService();
@@ -155,6 +153,8 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         tvEmpty = findViewById(R.id.tvEmpty);
 
         // Log UI
+        logToggleBar = findViewById(R.id.logToggleBar);
+        tvLogToggle = findViewById(R.id.tvLogToggle);
         cardLog = findViewById(R.id.cardLog);
         tvLog = findViewById(R.id.tvLog);
         btnCopyLog = findViewById(R.id.btnCopyLog);
@@ -164,6 +164,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         etUrl.setText("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
 
         adapter = new DownloadListAdapter(this);
+        adapter.setOnTaskRemovedListener(this::updateEmptyState);
         rvDownloads.setLayoutManager(new LinearLayoutManager(this));
         rvDownloads.setAdapter(adapter);
     }
@@ -190,44 +191,45 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
         btnDownload.setOnClickListener(v -> startDownload());
 
+        tvLogToggle.setOnClickListener(v -> toggleLogPanel());
+
         btnCopyLog.setOnClickListener(v -> {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("YTDownloader Log", logBuffer.toString());
+            ClipData clip = ClipData.newPlainText("YTDownloader Log", AppLogger.getLog());
             clipboard.setPrimaryClip(clip);
             Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
         });
 
         btnClearLog.setOnClickListener(v -> {
-            logBuffer.setLength(0);
+            AppLogger.clear();
             tvLog.setText("");
+            logExpanded = false;
             cardLog.setVisibility(View.GONE);
+            logToggleBar.setVisibility(View.GONE);
         });
     }
 
     private void appendLog(String level, String message) {
-        String time = logTimeFmt.format(new Date());
-        String line = "[" + time + "] " + level + ": " + message + "\n";
-        logBuffer.append(line);
-        Log.d(TAG, level + ": " + message);
-
-        mainHandler.post(() -> {
-            tvLog.setText(logBuffer.toString());
-            cardLog.setVisibility(View.VISIBLE);
-            // Auto scroll to bottom
-            ScrollView scrollView = (ScrollView) tvLog.getParent();
-            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
-        });
+        switch (level) {
+            case "ERROR":
+                AppLogger.e(TAG, message);
+                break;
+            case "WARN":
+                AppLogger.w(TAG, message);
+                break;
+            case "INFO":
+                AppLogger.i(TAG, message);
+                break;
+            default:
+                AppLogger.d(TAG, message);
+                break;
+        }
     }
 
-    private void appendException(String context, Throwable e) {
-        StringWriter sw = new StringWriter();
-        e.printStackTrace(new PrintWriter(sw));
-        String stackTrace = sw.toString();
-        // Keep first 500 chars of stack trace
-        if (stackTrace.length() > 500) {
-            stackTrace = stackTrace.substring(0, 500) + "...";
-        }
-        appendLog("ERROR", context + "\n" + e.getClass().getSimpleName() + ": " + e.getMessage() + "\n" + stackTrace);
+    private void toggleLogPanel() {
+        logExpanded = !logExpanded;
+        cardLog.setVisibility(logExpanded ? View.VISIBLE : View.GONE);
+        tvLogToggle.setText(logExpanded ? "Log \u25BC" : "Log \u25B2");
     }
 
     private void parseVideo(String videoId) {
@@ -453,7 +455,21 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     }
 
     @Override
+    public void onNewLog(String fullLog) {
+        mainHandler.post(() -> {
+            tvLog.setText(fullLog);
+            logToggleBar.setVisibility(View.VISIBLE);
+            if (logExpanded) {
+                cardLog.setVisibility(View.VISIBLE);
+                ScrollView scrollView = (ScrollView) tvLog.getParent();
+                scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+            }
+        });
+    }
+
+    @Override
     protected void onDestroy() {
+        AppLogger.removeListener(this);
         if (serviceBound) {
             downloadService.removeListener(this);
             unbindService(serviceConnection);
