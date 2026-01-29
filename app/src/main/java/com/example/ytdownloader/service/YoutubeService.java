@@ -103,6 +103,10 @@ public class YoutubeService {
                 YoutubeDLRequest request = new YoutubeDLRequest(videoUrl);
                 request.addOption("--dump-json");
                 request.addOption("--no-download");
+                // 加速解析：只用一个 player client，跳过不需要的内容
+                request.addOption("--extractor-args", "youtube:player_client=web");
+                request.addOption("--no-playlist");
+                request.addOption("--no-check-certificates");
 
                 String cookieFile = getCookieFilePath();
                 if (cookieFile != null) {
@@ -270,6 +274,9 @@ public class YoutubeService {
                 request.addOption("-f", formatSpec);
                 request.addOption("-o", outputPath);
                 request.addOption("--merge-output-format", "mp4");
+                request.addOption("--extractor-args", "youtube:player_client=web");
+                request.addOption("--no-playlist");
+                request.addOption("--no-check-certificates");
 
                 String cookieFile = getCookieFilePath();
                 if (cookieFile != null) {
