@@ -283,10 +283,23 @@ public class YoutubeService {
                     request.addOption("--cookies", cookieFile);
                 }
 
-                YoutubeDL.getInstance().execute(request, processId, (progress, etaInSeconds, line) -> {
-                    callback.onProgress(progress.intValue());
-                    return kotlin.Unit.INSTANCE;
-                });
+                com.yausername.youtubedl_android.YoutubeDLResponse dlResponse =
+                    YoutubeDL.getInstance().execute(request, processId, (progress, etaInSeconds, line) -> {
+                        if (line != null && !line.isEmpty()) {
+                            AppLogger.d(TAG, line);
+                        }
+                        int pct = progress.intValue();
+                        if (pct >= 0) {
+                            callback.onProgress(pct);
+                        }
+                        return kotlin.Unit.INSTANCE;
+                    });
+
+                // 输出 stderr 便于调试
+                String err = dlResponse.getErr();
+                if (err != null && !err.isEmpty()) {
+                    AppLogger.w(TAG, "yt-dlp stderr:\n" + err);
+                }
 
                 // Find the output file - yt-dlp may change extension
                 File outFile = findOutputFile(outputPath);
