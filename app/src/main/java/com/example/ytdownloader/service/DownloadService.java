@@ -146,12 +146,13 @@ public class DownloadService extends Service {
         notifyTaskUpdated(task);
         updateNotification("Downloading: " + task.getTitle());
 
-        File moviesDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "YTDownloader");
-        if (!moviesDir.exists()) {
-            moviesDir.mkdirs();
+        // yt-dlp 无法直接写入 Movies（Scoped Storage 限制），先下载到缓存目录
+        File cacheDir = new File(getCacheDir(), "ytdlp_downloads");
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs();
         }
 
-        String outputPath = new File(moviesDir, filename + ".%(ext)s").getAbsolutePath();
+        String outputPath = new File(cacheDir, filename + ".%(ext)s").getAbsolutePath();
 
         String processId = youtubeService.downloadWithYtDlp(
                 task.getVideoId(),
@@ -166,10 +167,7 @@ public class DownloadService extends Service {
 
                     @Override
                     public void onSuccess(String filePath) {
-                        task.setOutputPath(filePath);
-                        MediaScannerConnection.scanFile(DownloadService.this,
-                                new String[]{filePath}, null, null);
-                        completeTask(task);
+                        moveToMoviesAndComplete(task, filePath);
                     }
 
                     @Override
@@ -181,6 +179,64 @@ public class DownloadService extends Service {
                 });
 
         task.setProcessId(processId);
+    }
+
+    private void moveToMoviesAndComplete(DownloadTask task, String filePath) {
+        File srcFile = new File(filePath);
+        if (!srcFile.exists()) {
+            AppLogger.e(TAG, "Source file not found: " + filePath);
+            task.setOutputPath(filePath);
+            completeTask(task);
+            return;
+        }
+
+        File moviesDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "YTDownloader");
+        if (!moviesDir.exists()) {
+            moviesDir.mkdirs();
+        }
+
+        File destFile = new File(moviesDir, srcFile.getName());
+        if (destFile.exists()) {
+            String name = srcFile.getName();
+            int dot = name.lastIndexOf('.');
+            String base = dot > 0 ? name.substring(0, dot) : name;
+            String ext = dot > 0 ? name.substring(dot) : "";
+            int n = 1;
+            while (destFile.exists()) {
+                destFile = new File(moviesDir, base + "_" + n + ext);
+                n++;
+            }
+        }
+
+        boolean moved = srcFile.renameTo(destFile);
+        if (!moved) {
+            try {
+                java.io.InputStream in = new java.io.FileInputStream(srcFile);
+                java.io.OutputStream out = new java.io.FileOutputStream(destFile);
+                byte[] buf = new byte[8192];
+                int len;
+                while ((len = in.read(buf)) > 0) {
+                    out.write(buf, 0, len);
+                }
+                in.close();
+                out.close();
+                srcFile.delete();
+                moved = true;
+            } catch (Exception e) {
+                AppLogger.e(TAG, "Failed to copy file to Movies", e);
+            }
+        }
+
+        if (moved) {
+            AppLogger.i(TAG, "Moved to gallery: " + destFile.getAbsolutePath());
+            task.setOutputPath(destFile.getAbsolutePath());
+            MediaScannerConnection.scanFile(this,
+                    new String[]{destFile.getAbsolutePath()}, null, null);
+        } else {
+            AppLogger.w(TAG, "Move failed, keeping original: " + filePath);
+            task.setOutputPath(filePath);
+        }
+        completeTask(task);
     }
 
     private void downloadThumbnail(DownloadTask task, String safeTitle) {
