@@ -41,6 +41,9 @@ import com.example.ytdownloader.service.DownloadService;
 import com.example.ytdownloader.service.YoutubeService;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
+import com.yausername.youtubedl_android.YoutubeDL;
+import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel;
+import com.yausername.youtubedl_android.YoutubeDL.UpdateStatus;
 
 import java.util.List;
 
@@ -50,6 +53,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
     private TextInputEditText etUrl;
     private MaterialButton btnParse;
+    private MaterialButton btnUpdateYtDlp;
     private CardView cardVideoInfo;
     private ImageView ivThumbnail;
     private TextView tvTitle;
@@ -82,7 +86,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
                 if (result.getResultCode() == RESULT_OK) {
-                    // Login successful, refresh downloader and retry
                     youtubeService.refreshDownloader();
                     if (downloadService != null) {
                         downloadService.refreshYoutubeService();
@@ -106,7 +109,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             downloadService.addListener(MainActivity.this);
             serviceBound = true;
 
-            // Load existing tasks
             adapter.setTasks(downloadService.getAllTasks());
             updateEmptyState();
         }
@@ -137,6 +139,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private void initViews() {
         etUrl = findViewById(R.id.etUrl);
         btnParse = findViewById(R.id.btnParse);
+        btnUpdateYtDlp = findViewById(R.id.btnUpdateYtDlp);
         cardVideoInfo = findViewById(R.id.cardVideoInfo);
         ivThumbnail = findViewById(R.id.ivThumbnail);
         tvTitle = findViewById(R.id.tvTitle);
@@ -186,6 +189,8 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             parseVideo(videoId);
         });
 
+        btnUpdateYtDlp.setOnClickListener(v -> updateYtDlp());
+
         tvLogToggle.setOnClickListener(v -> toggleLogPanel());
 
         btnCopyLog.setOnClickListener(v -> {
@@ -202,6 +207,34 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             cardLog.setVisibility(View.GONE);
             logToggleBar.setVisibility(View.GONE);
         });
+    }
+
+    private void updateYtDlp() {
+        btnUpdateYtDlp.setEnabled(false);
+        Toast.makeText(this, "Updating yt-dlp...", Toast.LENGTH_SHORT).show();
+        appendLog("INFO", "Updating yt-dlp...");
+
+        new Thread(() -> {
+            try {
+                UpdateStatus status = YoutubeDL.getInstance().updateYoutubeDL(this, UpdateChannel.STABLE.INSTANCE);
+                mainHandler.post(() -> {
+                    btnUpdateYtDlp.setEnabled(true);
+                    if (status == UpdateStatus.DONE) {
+                        Toast.makeText(this, "yt-dlp updated successfully", Toast.LENGTH_SHORT).show();
+                        appendLog("INFO", "yt-dlp updated successfully");
+                    } else {
+                        Toast.makeText(this, "yt-dlp is already up to date", Toast.LENGTH_SHORT).show();
+                        appendLog("INFO", "yt-dlp already up to date");
+                    }
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    btnUpdateYtDlp.setEnabled(true);
+                    Toast.makeText(this, "Update failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    appendLog("ERROR", "yt-dlp update failed: " + e.getMessage());
+                });
+            }
+        }).start();
     }
 
     private void appendLog(String level, String message) {
@@ -321,7 +354,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
     private void addSectionHeader(String title) {
         TextView header = new TextView(this);
-        header.setText("── " + title + " ──");
+        header.setText("\u2500\u2500 " + title + " \u2500\u2500");
         header.setTextColor(ContextCompat.getColor(this, R.color.on_surface_secondary));
         header.setTextSize(12);
         header.setPadding(4, 12, 4, 4);
@@ -344,19 +377,29 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private void startFormatDownload(VideoInfo videoInfo, VideoInfo.FormatOption format, boolean isVideo) {
         if (!serviceBound) return;
 
-        DownloadTask.DownloadType type = isVideo ? DownloadTask.DownloadType.VIDEO_ONLY : DownloadTask.DownloadType.AUDIO_ONLY;
-        String videoItag = isVideo ? format.getItag() : null;
-        String audioItag = isVideo ? null : format.getItag();
+        String formatSpec;
+        DownloadTask.DownloadType type;
+        if (isVideo) {
+            type = DownloadTask.DownloadType.VIDEO;
+            if (!format.hasAudio()) {
+                // Pure video -> auto-merge with best audio
+                formatSpec = format.getFormatId() + "+bestaudio";
+            } else {
+                formatSpec = format.getFormatId();
+            }
+        } else {
+            type = DownloadTask.DownloadType.AUDIO;
+            formatSpec = format.getFormatId();
+        }
 
-        appendLog("INFO", "Download started: " + videoInfo.getTitle() + " [" + type + " " + format.getQuality() + "]");
+        appendLog("INFO", "Download started: " + videoInfo.getTitle() + " [" + type + " " + format.getQuality() + " f=" + formatSpec + "]");
 
         downloadService.createTask(
                 videoInfo.getVideoId(),
                 videoInfo.getTitle(),
                 videoInfo.getThumbnailUrl(),
                 type,
-                videoItag,
-                audioItag
+                formatSpec
         );
 
         Toast.makeText(this, "Download started: " + format.getQuality(), Toast.LENGTH_SHORT).show();
@@ -422,7 +465,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (sharedText != null) {
                 etUrl.setText(sharedText);
-                // Auto parse after short delay
                 mainHandler.postDelayed(() -> btnParse.performClick(), 500);
             }
         }

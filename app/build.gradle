@@ -38,22 +38,10 @@ android {
     }
 }
 
-configurations.all {
-    exclude group: 'ch.qos.logback', module: 'logback-classic'
-    exclude group: 'ch.qos.logback', module: 'logback-core'
-    // Force older SLF4J that doesn't require service provider
-    resolutionStrategy {
-        force 'org.slf4j:slf4j-api:1.7.30'
-    }
-}
-
 dependencies {
-    // YouTube downloader library (exclude incompatible logging)
-    implementation('com.github.sfss5362:java-youtube-downloader---fix-cookies:master-SNAPSHOT') {
-        exclude group: 'ch.qos.logback'
-    }
-
-    // No external FFmpeg needed - using Android MediaMuxer
+    // yt-dlp Android wrapper
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
+    implementation 'io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1'
 
     // Network
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

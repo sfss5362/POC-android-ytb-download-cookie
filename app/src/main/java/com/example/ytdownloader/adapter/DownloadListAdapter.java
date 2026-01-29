@@ -116,15 +116,8 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
                 holder.btnDelete.setVisibility(View.VISIBLE);
                 holder.btnDelete.setOnClickListener(v -> deleteTask(task, holder.getAdapterPosition(), false));
                 break;
-            case MERGING:
-                holder.progressBar.setVisibility(View.VISIBLE);
-                holder.progressBar.setIndeterminate(true);
-                holder.btnAction.setVisibility(View.VISIBLE);
-                holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
-                holder.btnFolder.setVisibility(View.GONE);
-                holder.btnDelete.setVisibility(View.GONE);
-                break;
             default:
+                // PENDING, DOWNLOADING
                 holder.progressBar.setVisibility(View.VISIBLE);
                 holder.progressBar.setIndeterminate(false);
                 holder.progressBar.setProgress(task.getProgress());

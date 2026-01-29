@@ -3,18 +3,15 @@ package com.example.ytdownloader.model;
 public class DownloadTask {
     public enum Status {
         PENDING,
-        DOWNLOADING_VIDEO,
-        DOWNLOADING_AUDIO,
-        MERGING,
+        DOWNLOADING,
         COMPLETED,
         FAILED,
         CANCELLED
     }
 
     public enum DownloadType {
-        VIDEO_ONLY,
-        AUDIO_ONLY,
-        BEST_QUALITY_MERGE,
+        VIDEO,
+        AUDIO,
         THUMBNAIL
     }
 
@@ -25,8 +22,8 @@ public class DownloadTask {
     private DownloadType downloadType;
     private Status status;
     private int progress;
-    private String videoItag;
-    private String audioItag;
+    private String formatSpec;
+    private String processId;
     private String outputPath;
     private String errorMessage;
     private long totalBytes;
@@ -55,11 +52,11 @@ public class DownloadTask {
     public int getProgress() { return progress; }
     public void setProgress(int progress) { this.progress = progress; }
 
-    public String getVideoItag() { return videoItag; }
-    public void setVideoItag(String videoItag) { this.videoItag = videoItag; }
+    public String getFormatSpec() { return formatSpec; }
+    public void setFormatSpec(String formatSpec) { this.formatSpec = formatSpec; }
 
-    public String getAudioItag() { return audioItag; }
-    public void setAudioItag(String audioItag) { this.audioItag = audioItag; }
+    public String getProcessId() { return processId; }
+    public void setProcessId(String processId) { this.processId = processId; }
 
     public String getOutputPath() { return outputPath; }
     public void setOutputPath(String outputPath) { this.outputPath = outputPath; }
@@ -79,9 +76,7 @@ public class DownloadTask {
     public String getStatusText() {
         switch (status) {
             case PENDING: return "Waiting...";
-            case DOWNLOADING_VIDEO: return "Downloading video... " + progress + "%";
-            case DOWNLOADING_AUDIO: return "Downloading audio... " + progress + "%";
-            case MERGING: return "Merging...";
+            case DOWNLOADING: return "Downloading... " + progress + "%";
             case COMPLETED: return "Completed";
             case FAILED: return "Failed: " + (errorMessage != null ? errorMessage : "Unknown error");
             case CANCELLED: return "Cancelled";

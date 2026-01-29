@@ -39,6 +39,20 @@
             android:text="@string/btn_parse"
             app:backgroundTint="@color/primary" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnUpdateYtDlp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            app:icon="@android:drawable/stat_notify_sync"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="20dp"
+            android:contentDescription="Update yt-dlp" />
+
     </LinearLayout>
 
     <!-- Scrollable content area -->

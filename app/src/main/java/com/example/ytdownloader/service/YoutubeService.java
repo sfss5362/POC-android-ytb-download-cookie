@@ -5,15 +5,11 @@ import android.content.Context;
 import com.example.ytdownloader.manager.AppLogger;
 import com.example.ytdownloader.manager.CookieStorage;
 import com.example.ytdownloader.model.VideoInfo;
-import com.github.kiulian.downloader.YoutubeDownloader;
-import com.github.kiulian.downloader.downloader.YoutubeProgressCallback;
-import com.github.kiulian.downloader.downloader.request.RequestVideoFileDownload;
-import com.github.kiulian.downloader.downloader.request.RequestVideoInfo;
-import com.github.kiulian.downloader.downloader.response.Response;
-import com.github.kiulian.downloader.model.videos.formats.AudioFormat;
-import com.github.kiulian.downloader.model.videos.formats.Format;
-import com.github.kiulian.downloader.model.videos.formats.VideoFormat;
-import com.github.kiulian.downloader.model.videos.formats.VideoWithAudioFormat;
+import com.yausername.youtubedl_android.YoutubeDL;
+import com.yausername.youtubedl_android.YoutubeDLRequest;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -23,6 +19,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,7 +30,6 @@ public class YoutubeService {
 
     private final Context context;
     private final CookieStorage cookieStorage;
-    private YoutubeDownloader downloader;
 
     public interface ParseCallback {
         void onSuccess(VideoInfo videoInfo);
@@ -50,42 +46,26 @@ public class YoutubeService {
     public YoutubeService(Context context) {
         this.context = context;
         this.cookieStorage = new CookieStorage(context);
-        initDownloader();
-    }
-
-    private void initDownloader() {
-        String cookies = cookieStorage.getCookies();
-        AppLogger.d(TAG, "initDownloader - cookies present: " + (cookies != null && !cookies.isEmpty()));
-        if (cookies != null && !cookies.isEmpty()) {
-            try {
-                File cookieFile = createCookieFile(cookies);
-                AppLogger.d(TAG, "Cookie file created: " + cookieFile.getAbsolutePath());
-                com.github.kiulian.downloader.Config config = new com.github.kiulian.downloader.Config.Builder()
-                        .cookies(cookieFile.getAbsolutePath())
-                        .build();
-                downloader = new YoutubeDownloader(config);
-                AppLogger.i(TAG, "YoutubeDownloader initialized with cookies");
-            } catch (IOException e) {
-                AppLogger.e(TAG, "Failed to create cookie file", e);
-                downloader = new YoutubeDownloader();
-            }
-        } else {
-            AppLogger.d(TAG, "YoutubeDownloader initialized without cookies");
-            downloader = new YoutubeDownloader();
-        }
     }
 
     public void refreshDownloader() {
-        initDownloader();
+        // No-op: yt-dlp picks up cookies per-request
     }
 
-    private File createCookieFile(String cookies) throws IOException {
-        File cookieFile = new File(context.getCacheDir(), "cookies.txt");
-        String cookiesTxt = cookieStorage.convertToCookiesTxt(cookies);
-        try (FileWriter writer = new FileWriter(cookieFile)) {
-            writer.write(cookiesTxt);
+    private String getCookieFilePath() {
+        String cookies = cookieStorage.getCookies();
+        if (cookies == null || cookies.isEmpty()) return null;
+        try {
+            File cookieFile = new File(context.getCacheDir(), "cookies.txt");
+            String cookiesTxt = cookieStorage.convertToCookiesTxt(cookies);
+            try (FileWriter writer = new FileWriter(cookieFile)) {
+                writer.write(cookiesTxt);
+            }
+            return cookieFile.getAbsolutePath();
+        } catch (IOException e) {
+            AppLogger.e(TAG, "Failed to create cookie file", e);
+            return null;
         }
-        return cookieFile;
     }
 
     public String extractVideoId(String url) {
@@ -93,7 +73,6 @@ public class YoutubeService {
             return null;
         }
 
-        // Handle various YouTube URL formats
         String[] patterns = {
                 "(?:v=|/v/|youtu\\.be/)([a-zA-Z0-9_-]{11})",
                 "(?:embed/)([a-zA-Z0-9_-]{11})",
@@ -108,7 +87,6 @@ public class YoutubeService {
             }
         }
 
-        // Check if the input is already a video ID
         if (url.matches("^[a-zA-Z0-9_-]{11}$")) {
             return url;
         }
@@ -120,322 +98,254 @@ public class YoutubeService {
         new Thread(() -> {
             try {
                 AppLogger.i(TAG, "Parsing video: " + videoId);
-                AppLogger.d(TAG, "Has cookies: " + (cookieStorage.getCookies() != null && !cookieStorage.getCookies().isEmpty()));
+                String videoUrl = "https://www.youtube.com/watch?v=" + videoId;
 
-                RequestVideoInfo request = new RequestVideoInfo(videoId);
-                Response<com.github.kiulian.downloader.model.videos.VideoInfo> response = downloader.getVideoInfo(request);
+                YoutubeDLRequest request = new YoutubeDLRequest(videoUrl);
+                request.addOption("--dump-json");
+                request.addOption("--no-download");
 
-                if (!response.ok()) {
-                    String error = response.error().getMessage();
-                    AppLogger.e(TAG, "Parse failed: " + error);
-                    if (response.error() != null) {
-                        AppLogger.e(TAG, "Error details:", response.error());
-                    }
-                    // Check for bot detection / login required
-                    if (error != null && (error.contains(BOT_DETECTION_MESSAGE) || error.contains(LOGIN_REQUIRED))) {
-                        AppLogger.w(TAG, "Bot detection / Login required - triggering WebView login");
-                        callback.onBotDetected();
-                    } else {
-                        callback.onError(error != null ? error : "Failed to parse video");
-                    }
+                String cookieFile = getCookieFilePath();
+                if (cookieFile != null) {
+                    request.addOption("--cookies", cookieFile);
+                    AppLogger.d(TAG, "Using cookies file");
+                }
+
+                com.yausername.youtubedl_android.YoutubeDLResponse response =
+                        YoutubeDL.getInstance().execute(request);
+
+                String jsonOutput = response.getOut();
+                if (jsonOutput == null || jsonOutput.isEmpty()) {
+                    callback.onError("No response from yt-dlp");
                     return;
                 }
 
-                AppLogger.i(TAG, "Parse successful");
+                JSONObject json = new JSONObject(jsonOutput);
 
-                com.github.kiulian.downloader.model.videos.VideoInfo ytVideoInfo = response.data();
+                String title = json.optString("title", "Unknown");
+                String author = json.optString("uploader", "Unknown");
+                long duration = json.optLong("duration", 0);
 
-                List<String> thumbnails = ytVideoInfo.details().thumbnails();
-                String bestThumbnail = (thumbnails != null && !thumbnails.isEmpty())
-                        ? thumbnails.get(thumbnails.size() - 1) : null;
-
-                VideoInfo videoInfo = new VideoInfo(
-                        videoId,
-                        ytVideoInfo.details().title(),
-                        ytVideoInfo.details().author(),
-                        bestThumbnail,
-                        ytVideoInfo.details().lengthSeconds()
-                );
-                videoInfo.setThumbnailUrls(thumbnails);
-
-                // --- Video formats: DASH only, one per resolution, prefer muxed > video-only, prefer mp4 ---
-                // Key = resolution number (e.g. 360, 720, 1080)
-                Map<Integer, VideoInfo.FormatOption> videoDedup = new HashMap<>();
-
-                // Pass 1: video-only mp4
-                for (VideoFormat format : ytVideoInfo.videoFormats()) {
-                    String mime = format.mimeType();
-                    if (mime == null || !mime.contains("mp4")) continue;
-                    int res = parseResolution(format.qualityLabel());
-                    if (res <= 0) continue;
-                    videoDedup.put(res, new VideoInfo.FormatOption(
-                            format.itag().id() + "", format.qualityLabel(), mime,
-                            format.contentLength() != null ? format.contentLength() : 0, false, true));
-                }
-                // Pass 2: video-only non-mp4 non-HLS (fallback if no mp4 for that res)
-                for (VideoFormat format : ytVideoInfo.videoFormats()) {
-                    String mime = format.mimeType();
-                    if (mime == null || mime.contains("mp4")) continue;
-                    if (isHls(mime)) continue;
-                    int res = parseResolution(format.qualityLabel());
-                    if (res <= 0 || videoDedup.containsKey(res)) continue;
-                    videoDedup.put(res, new VideoInfo.FormatOption(
-                            format.itag().id() + "", format.qualityLabel(), mime,
-                            format.contentLength() != null ? format.contentLength() : 0, false, true));
-                }
-                // Pass 3: muxed mp4 — overwrite video-only for same resolution (muxed preferred)
-                for (VideoWithAudioFormat format : ytVideoInfo.videoWithAudioFormats()) {
-                    String mime = format.mimeType();
-                    if (mime == null || !mime.contains("mp4")) continue;
-                    int res = parseResolution(format.qualityLabel());
-                    if (res <= 0) continue;
-                    String label = format.qualityLabel();
-                    if (!label.contains("with audio")) label += " (with audio)";
-                    videoDedup.put(res, new VideoInfo.FormatOption(
-                            format.itag().id() + "", label, mime,
-                            format.contentLength() != null ? format.contentLength() : 0, true, true));
-                }
-                // Pass 4: muxed non-mp4 non-HLS (only if no entry yet for that res)
-                for (VideoWithAudioFormat format : ytVideoInfo.videoWithAudioFormats()) {
-                    String mime = format.mimeType();
-                    if (mime == null || mime.contains("mp4")) continue;
-                    if (isHls(mime)) continue;
-                    int res = parseResolution(format.qualityLabel());
-                    if (res <= 0 || videoDedup.containsKey(res)) continue;
-                    String label = format.qualityLabel();
-                    if (!label.contains("with audio")) label += " (with audio)";
-                    videoDedup.put(res, new VideoInfo.FormatOption(
-                            format.itag().id() + "", label, mime,
-                            format.contentLength() != null ? format.contentLength() : 0, true, true));
-                }
-
-                // Sort by resolution ascending
-                List<Integer> sortedRes = new ArrayList<>(videoDedup.keySet());
-                Collections.sort(sortedRes);
-                List<VideoInfo.FormatOption> videoFormats = new ArrayList<>();
-                for (int r : sortedRes) {
-                    videoFormats.add(videoDedup.get(r));
-                }
-                videoInfo.setVideoFormats(videoFormats);
-
-                // --- Audio formats: DASH only, one per audioQuality, prefer m4a, sort by bitrate ---
-                Map<String, VideoInfo.FormatOption> audioDedup = new HashMap<>();
-                Map<String, Integer> audioBitrate = new HashMap<>();
-                for (AudioFormat format : ytVideoInfo.audioFormats()) {
-                    String mime = format.mimeType();
-                    if (mime == null || isHls(mime)) continue;
-                    String qualKey = format.audioQuality().name();
-                    boolean isMp4 = mime.contains("mp4");
-                    boolean exists = audioDedup.containsKey(qualKey);
-                    // prefer m4a: overwrite if current is mp4 and old is not, or no entry yet
-                    if (!exists || (isMp4 && !audioDedup.get(qualKey).getMimeType().contains("mp4"))) {
-                        int kbps = format.averageBitrate() / 1000;
-                        audioDedup.put(qualKey, new VideoInfo.FormatOption(
-                                format.itag().id() + "", qualKey.toLowerCase() + " " + kbps + "kbps", mime,
-                                format.contentLength() != null ? format.contentLength() : 0, true, false));
-                        audioBitrate.put(qualKey, kbps);
+                // Thumbnail
+                String thumbnail = json.optString("thumbnail", null);
+                List<String> thumbnailUrls = new ArrayList<>();
+                JSONArray thumbArray = json.optJSONArray("thumbnails");
+                if (thumbArray != null) {
+                    for (int i = 0; i < thumbArray.length(); i++) {
+                        JSONObject t = thumbArray.optJSONObject(i);
+                        if (t != null && t.has("url")) {
+                            thumbnailUrls.add(t.getString("url"));
+                        }
                     }
                 }
-                // Sort by bitrate ascending
-                List<Map.Entry<String, VideoInfo.FormatOption>> audioEntries = new ArrayList<>(audioDedup.entrySet());
-                Collections.sort(audioEntries, (a, b) -> {
-                    int ba = audioBitrate.containsKey(a.getKey()) ? audioBitrate.get(a.getKey()) : 0;
-                    int bb = audioBitrate.containsKey(b.getKey()) ? audioBitrate.get(b.getKey()) : 0;
-                    return Integer.compare(ba, bb);
-                });
-                List<VideoInfo.FormatOption> audioFormats = new ArrayList<>();
-                for (Map.Entry<String, VideoInfo.FormatOption> e : audioEntries) {
-                    audioFormats.add(e.getValue());
+                if (thumbnail == null && !thumbnailUrls.isEmpty()) {
+                    thumbnail = thumbnailUrls.get(thumbnailUrls.size() - 1);
                 }
-                videoInfo.setAudioFormats(audioFormats);
 
+                VideoInfo videoInfo = new VideoInfo(videoId, title, author, thumbnail, duration);
+                videoInfo.setThumbnailUrls(thumbnailUrls);
+
+                // Parse formats
+                JSONArray formats = json.optJSONArray("formats");
+                if (formats == null) {
+                    callback.onError("No formats found");
+                    return;
+                }
+
+                // Video dedup: key = resolution number
+                Map<Integer, VideoInfo.FormatOption> videoDedup = new HashMap<>();
+                // Audio dedup: key = abr (approx bitrate)
+                Map<Integer, VideoInfo.FormatOption> audioDedup = new HashMap<>();
+
+                for (int i = 0; i < formats.length(); i++) {
+                    JSONObject fmt = formats.getJSONObject(i);
+
+                    String protocol = fmt.optString("protocol", "");
+                    if (protocol.contains("m3u8") || protocol.contains("dash_frag")) continue;
+
+                    String formatId = fmt.optString("format_id", "");
+                    String ext = fmt.optString("ext", "");
+                    String vcodec = fmt.optString("vcodec", "none");
+                    String acodec = fmt.optString("acodec", "none");
+                    long filesize = fmt.optLong("filesize", fmt.optLong("filesize_approx", 0));
+                    String formatNote = fmt.optString("format_note", "");
+                    int height = fmt.optInt("height", 0);
+
+                    boolean hasVideo = !"none".equals(vcodec);
+                    boolean hasAudio = !"none".equals(acodec);
+
+                    if (hasVideo) {
+                        // Video format
+                        int res = height > 0 ? height : parseResolution(formatNote);
+                        if (res <= 0) continue;
+
+                        String quality = res + "p";
+                        if (hasAudio) {
+                            quality += " (with audio)";
+                        }
+
+                        boolean isMp4 = "mp4".equals(ext) || "m4a".equals(ext);
+                        boolean exists = videoDedup.containsKey(res);
+
+                        // Prefer: muxed > video-only, mp4 > other
+                        if (!exists) {
+                            videoDedup.put(res, new VideoInfo.FormatOption(
+                                    formatId, quality, ext, ext, filesize, hasAudio, true));
+                        } else {
+                            VideoInfo.FormatOption existing = videoDedup.get(res);
+                            boolean existingMuxed = existing.hasAudio();
+                            boolean existingMp4 = "mp4".equals(existing.getExt());
+
+                            if ((hasAudio && !existingMuxed) ||
+                                (hasAudio == existingMuxed && isMp4 && !existingMp4)) {
+                                videoDedup.put(res, new VideoInfo.FormatOption(
+                                        formatId, quality, ext, ext, filesize, hasAudio, true));
+                            }
+                        }
+                    } else if (hasAudio) {
+                        // Audio-only format
+                        int abr = (int) fmt.optDouble("abr", 0);
+                        if (abr <= 0) {
+                            int tbr = (int) fmt.optDouble("tbr", 0);
+                            abr = tbr > 0 ? tbr : 0;
+                        }
+                        if (abr <= 0) continue;
+
+                        String quality = formatNote.isEmpty() ? (abr + "kbps") : (formatNote + " " + abr + "kbps");
+                        boolean isMp4 = "m4a".equals(ext) || "mp4".equals(ext);
+                        boolean exists = audioDedup.containsKey(abr);
+
+                        if (!exists || (isMp4 && !"m4a".equals(audioDedup.get(abr).getExt()))) {
+                            audioDedup.put(abr, new VideoInfo.FormatOption(
+                                    formatId, quality, ext, ext, filesize, true, false));
+                        }
+                    }
+                }
+
+                // Sort video by resolution ascending
+                List<Integer> sortedRes = new ArrayList<>(videoDedup.keySet());
+                Collections.sort(sortedRes);
+                List<VideoInfo.FormatOption> videoFormatList = new ArrayList<>();
+                for (int r : sortedRes) {
+                    videoFormatList.add(videoDedup.get(r));
+                }
+                videoInfo.setVideoFormats(videoFormatList);
+
+                // Sort audio by bitrate ascending
+                List<Integer> sortedAbr = new ArrayList<>(audioDedup.keySet());
+                Collections.sort(sortedAbr);
+                List<VideoInfo.FormatOption> audioFormatList = new ArrayList<>();
+                for (int a : sortedAbr) {
+                    audioFormatList.add(audioDedup.get(a));
+                }
+                videoInfo.setAudioFormats(audioFormatList);
+
+                AppLogger.i(TAG, "Parse success: " + title + " - " + videoFormatList.size() + " video, " + audioFormatList.size() + " audio formats");
                 callback.onSuccess(videoInfo);
 
             } catch (Exception e) {
-                AppLogger.e(TAG, "Exception parsing video: " + e.getClass().getName(), e);
                 String message = e.getMessage();
+                AppLogger.e(TAG, "Exception parsing video: " + (message != null ? message : e.getClass().getName()), e);
                 if (message != null && (message.contains(BOT_DETECTION_MESSAGE) || message.contains(LOGIN_REQUIRED))) {
-                    AppLogger.w(TAG, "Bot detection triggered (exception)");
+                    AppLogger.w(TAG, "Bot detection triggered");
                     callback.onBotDetected();
                 } else {
-                    AppLogger.e(TAG, "Parse error: " + message);
                     callback.onError(message != null ? message : "Unknown error");
                 }
             }
         }).start();
     }
 
-    public void downloadFormat(String videoId, String itag, File outputDir, String filename, DownloadCallback callback) {
+    /**
+     * Download using yt-dlp. Returns the process ID for cancellation.
+     */
+    public String downloadWithYtDlp(String videoId, String formatSpec, String outputPath,
+                                     DownloadCallback callback) {
+        String processId = UUID.randomUUID().toString();
         new Thread(() -> {
             try {
-                AppLogger.i(TAG, "Download start - videoId: " + videoId + ", itag: " + itag + ", dir: " + outputDir.getAbsolutePath() + ", file: " + filename);
+                String videoUrl = "https://www.youtube.com/watch?v=" + videoId;
+                AppLogger.i(TAG, "yt-dlp download: videoId=" + videoId + ", format=" + formatSpec);
 
-                // Ensure output directory exists
-                if (!outputDir.exists()) {
-                    boolean created = outputDir.mkdirs();
-                    AppLogger.d(TAG, "Output dir created: " + created + " - " + outputDir.getAbsolutePath());
-                }
-                AppLogger.d(TAG, "Output dir writable: " + outputDir.canWrite() + ", exists: " + outputDir.exists());
+                YoutubeDLRequest request = new YoutubeDLRequest(videoUrl);
+                request.addOption("-f", formatSpec);
+                request.addOption("-o", outputPath);
+                request.addOption("--merge-output-format", "mp4");
 
-                AppLogger.d(TAG, "Re-parsing video info for download...");
-                RequestVideoInfo infoRequest = new RequestVideoInfo(videoId);
-                Response<com.github.kiulian.downloader.model.videos.VideoInfo> infoResponse = downloader.getVideoInfo(infoRequest);
-
-                if (!infoResponse.ok()) {
-                    String error = infoResponse.error() != null ? infoResponse.error().getMessage() : "Unknown error";
-                    AppLogger.e(TAG, "Download re-parse failed: " + error);
-                    if (infoResponse.error() != null) {
-                        AppLogger.e(TAG, "Re-parse error details:", infoResponse.error());
-                    }
-                    callback.onError("Re-parse failed: " + error);
-                    return;
+                String cookieFile = getCookieFilePath();
+                if (cookieFile != null) {
+                    request.addOption("--cookies", cookieFile);
                 }
 
-                com.github.kiulian.downloader.model.videos.VideoInfo videoInfo = infoResponse.data();
-                AppLogger.i(TAG, "Re-parse success. Video formats: " + videoInfo.videoFormats().size()
-                        + ", Audio formats: " + videoInfo.audioFormats().size()
-                        + ", VideoWithAudio formats: " + videoInfo.videoWithAudioFormats().size());
+                YoutubeDL.getInstance().execute(request, processId, (progress, etaInSeconds, line) -> {
+                    callback.onProgress(progress.intValue());
+                    return kotlin.Unit.INSTANCE;
+                });
 
-                Format format = findFormatByItag(videoInfo, itag);
-                if (format == null) {
-                    AppLogger.e(TAG, "Format not found for itag: " + itag);
-                    // List available itags for debugging
-                    StringBuilder available = new StringBuilder("Available itags - Video: ");
-                    for (VideoFormat vf : videoInfo.videoFormats()) {
-                        available.append(vf.itag().id()).append(" ");
-                    }
-                    available.append(", Audio: ");
-                    for (AudioFormat af : videoInfo.audioFormats()) {
-                        available.append(af.itag().id()).append(" ");
-                    }
-                    available.append(", VideoWithAudio: ");
-                    for (VideoWithAudioFormat vaf : videoInfo.videoWithAudioFormats()) {
-                        available.append(vaf.itag().id()).append(" ");
-                    }
-                    AppLogger.d(TAG, available.toString());
-                    callback.onError("Format not found for itag: " + itag);
-                    return;
-                }
-
-                AppLogger.i(TAG, "Format found: mimeType=" + format.mimeType()
-                        + ", contentLength=" + (format.contentLength() != null ? format.contentLength() : "null")
-                        + ", url=" + (format.url() != null ? format.url().substring(0, Math.min(100, format.url().length())) + "..." : "null"));
-
-                RequestVideoFileDownload downloadRequest = new RequestVideoFileDownload(format)
-                        .saveTo(outputDir)
-                        .renameTo(filename)
-                        .overwriteIfExists(true)
-                        .callback(new YoutubeProgressCallback<File>() {
-                            @Override
-                            public void onDownloading(int progress) {
-                                callback.onProgress(progress);
-                            }
-
-                            @Override
-                            public void onFinished(File file) {
-                                AppLogger.i(TAG, "Download callback onFinished: " + file.getAbsolutePath() + ", size: " + file.length());
-                            }
-
-                            @Override
-                            public void onError(Throwable throwable) {
-                                AppLogger.e(TAG, "Download callback onError", throwable);
-                            }
-                        });
-
-                AppLogger.d(TAG, "Starting file download...");
-                Response<File> downloadResponse = downloader.downloadVideoFile(downloadRequest);
-
-                if (downloadResponse.ok()) {
-                    File file = downloadResponse.data();
-                    AppLogger.i(TAG, "Download response OK, file: " + (file != null ? file.getAbsolutePath() : "null"));
-                    if (file != null && file.exists()) {
-                        AppLogger.i(TAG, "File exists, size: " + file.length() + " bytes");
-                        callback.onSuccess(file.getAbsolutePath());
-                    } else {
-                        // Try to find file manually
-                        File expected = new File(outputDir, filename);
-                        AppLogger.d(TAG, "Response file null/missing, checking expected path: " + expected.getAbsolutePath());
-                        if (expected.exists()) {
-                            AppLogger.i(TAG, "Found file at expected path, size: " + expected.length() + " bytes");
-                            callback.onSuccess(expected.getAbsolutePath());
-                        } else {
-                            // List files in output dir for debugging
-                            String[] files = outputDir.list();
-                            AppLogger.e(TAG, "Video file not found at: " + expected.getAbsolutePath());
-                            if (files != null) {
-                                AppLogger.d(TAG, "Files in output dir (" + files.length + "): " + String.join(", ", files));
-                            } else {
-                                AppLogger.d(TAG, "Output dir listing returned null");
-                            }
-                            callback.onError("Video file not found at: " + expected.getAbsolutePath());
-                        }
-                    }
+                // Find the output file - yt-dlp may change extension
+                File outFile = findOutputFile(outputPath);
+                if (outFile != null && outFile.exists()) {
+                    AppLogger.i(TAG, "Download complete: " + outFile.getAbsolutePath() + " (" + outFile.length() + " bytes)");
+                    callback.onSuccess(outFile.getAbsolutePath());
                 } else {
-                    String error = downloadResponse.error() != null ? downloadResponse.error().getMessage() : "Download failed";
-                    AppLogger.e(TAG, "Download response error: " + error);
-                    if (downloadResponse.error() != null) {
-                        AppLogger.e(TAG, "Download error details:", downloadResponse.error());
-                    }
-                    callback.onError("Download error: " + error);
+                    callback.onError("Output file not found after download");
                 }
 
             } catch (Exception e) {
-                AppLogger.e(TAG, "Exception during download", e);
-                callback.onError("Download exception: " + e.getMessage());
+                AppLogger.e(TAG, "yt-dlp download error", e);
+                callback.onError(e.getMessage() != null ? e.getMessage() : "Download failed");
             }
         }).start();
+        return processId;
     }
 
-    private Format findFormatByItag(com.github.kiulian.downloader.model.videos.VideoInfo videoInfo, String itag) {
-        int itagId = Integer.parseInt(itag);
+    /**
+     * Find the actual output file. yt-dlp may substitute %(ext)s with the real extension.
+     */
+    private File findOutputFile(String outputTemplate) {
+        // Try exact path first
+        File exact = new File(outputTemplate);
+        if (exact.exists()) return exact;
 
-        for (VideoFormat format : videoInfo.videoFormats()) {
-            if (format.itag().id() == itagId) {
-                return format;
+        // If template contains %(ext)s, try common extensions
+        if (outputTemplate.contains("%(ext)s")) {
+            String[] exts = {"mp4", "mkv", "webm", "m4a", "mp3", "ogg", "opus"};
+            for (String ext : exts) {
+                File f = new File(outputTemplate.replace("%(ext)s", ext));
+                if (f.exists()) return f;
             }
         }
 
-        for (VideoWithAudioFormat format : videoInfo.videoWithAudioFormats()) {
-            if (format.itag().id() == itagId) {
-                return format;
-            }
+        // Try the directory listing for files with the base name
+        File parent = exact.getParentFile();
+        String baseName = exact.getName();
+        // Strip extension/template from name
+        int dot = baseName.lastIndexOf('.');
+        if (dot > 0) {
+            baseName = baseName.substring(0, dot);
         }
+        baseName = baseName.replace("%(ext)s", "");
 
-        for (AudioFormat format : videoInfo.audioFormats()) {
-            if (format.itag().id() == itagId) {
-                return format;
+        if (parent != null && parent.exists()) {
+            String finalBase = baseName;
+            File[] matches = parent.listFiles((dir, name) -> name.startsWith(finalBase));
+            if (matches != null && matches.length > 0) {
+                return matches[0];
             }
         }
 
         return null;
     }
 
+    public void cancelDownload(String processId) {
+        if (processId != null) {
+            YoutubeDL.getInstance().destroyProcessById(processId);
+            AppLogger.i(TAG, "Cancelled download process: " + processId);
+        }
+    }
+
     private static int parseResolution(String qualityLabel) {
         if (qualityLabel == null) return 0;
         Matcher m = Pattern.compile("(\\d+)p").matcher(qualityLabel);
         return m.find() ? Integer.parseInt(m.group(1)) : 0;
-    }
-
-    private static boolean isHls(String mime) {
-        return mime.contains("mp2t") || mime.contains("x-mpegURL") || mime.contains("m3u8");
-    }
-
-    public String getBestVideoItag(VideoInfo videoInfo) {
-        List<VideoInfo.FormatOption> formats = videoInfo.getVideoFormats();
-        if (formats == null || formats.isEmpty()) return null;
-
-        // Find highest quality video-only format
-        for (VideoInfo.FormatOption format : formats) {
-            if (!format.hasAudio()) {
-                return format.getItag();
-            }
-        }
-        return formats.get(0).getItag();
-    }
-
-    public String getBestAudioItag(VideoInfo videoInfo) {
-        List<VideoInfo.FormatOption> formats = videoInfo.getAudioFormats();
-        if (formats == null || formats.isEmpty()) return null;
-        return formats.get(0).getItag();
     }
 }

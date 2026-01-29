@@ -13,28 +13,35 @@ public class VideoInfo {
     private List<String> thumbnailUrls;
 
     public static class FormatOption {
-        private String itag;
+        private String formatId;
         private String quality;
         private String mimeType;
+        private String ext;
         private long contentLength;
         private boolean hasAudio;
         private boolean hasVideo;
+        private String bestAudioFormatId;
 
-        public FormatOption(String itag, String quality, String mimeType, long contentLength, boolean hasAudio, boolean hasVideo) {
-            this.itag = itag;
+        public FormatOption(String formatId, String quality, String mimeType, String ext, long contentLength, boolean hasAudio, boolean hasVideo) {
+            this.formatId = formatId;
             this.quality = quality;
             this.mimeType = mimeType;
+            this.ext = ext;
             this.contentLength = contentLength;
             this.hasAudio = hasAudio;
             this.hasVideo = hasVideo;
         }
 
-        public String getItag() { return itag; }
+        public String getFormatId() { return formatId; }
         public String getQuality() { return quality; }
         public String getMimeType() { return mimeType; }
+        public String getExt() { return ext; }
         public long getContentLength() { return contentLength; }
         public boolean hasAudio() { return hasAudio; }
         public boolean hasVideo() { return hasVideo; }
+
+        public String getBestAudioFormatId() { return bestAudioFormatId; }
+        public void setBestAudioFormatId(String bestAudioFormatId) { this.bestAudioFormatId = bestAudioFormatId; }
 
         @Override
         public String toString() {

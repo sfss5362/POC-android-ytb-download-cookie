@@ -17,7 +17,6 @@ import androidx.core.app.NotificationCompat;
 import com.example.ytdownloader.MainActivity;
 import com.example.ytdownloader.R;
 import com.example.ytdownloader.manager.AppLogger;
-import com.example.ytdownloader.manager.FFmpegHelper;
 import com.example.ytdownloader.model.DownloadTask;
 
 import java.io.File;
@@ -95,12 +94,11 @@ public class DownloadService extends Service {
         tasks.remove(taskId);
     }
 
-    public String createTask(String videoId, String title, String thumbnailUrl, DownloadTask.DownloadType type,
-                             String videoItag, String audioItag) {
+    public String createTask(String videoId, String title, String thumbnailUrl,
+                             DownloadTask.DownloadType type, String formatSpec) {
         String taskId = UUID.randomUUID().toString();
         DownloadTask task = new DownloadTask(taskId, videoId, title, thumbnailUrl, type);
-        task.setVideoItag(videoItag);
-        task.setAudioItag(audioItag);
+        task.setFormatSpec(formatSpec);
         tasks.put(taskId, task);
 
         for (DownloadListener listener : listeners) {
@@ -126,29 +124,16 @@ public class DownloadService extends Service {
     }
 
     private void startDownload(DownloadTask task) {
-        File cacheDir = getCacheDir();
-        File downloadDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "YTDownloader");
-        if (!downloadDir.exists()) {
-            boolean created = downloadDir.mkdirs();
-            AppLogger.d(TAG, "Download dir created: " + created + " - " + downloadDir.getAbsolutePath());
-        }
-        AppLogger.d(TAG, "Download dir: " + downloadDir.getAbsolutePath() + " writable: " + downloadDir.canWrite());
-
         String safeTitle = task.getTitle().replaceAll("[^a-zA-Z0-9\\s]", "").trim();
         if (safeTitle.length() > 50) {
             safeTitle = safeTitle.substring(0, 50);
         }
-        AppLogger.i(TAG, "startDownload: type=" + task.getDownloadType() + ", videoItag=" + task.getVideoItag() + ", audioItag=" + task.getAudioItag() + ", title=" + safeTitle);
+        AppLogger.i(TAG, "startDownload: type=" + task.getDownloadType() + ", formatSpec=" + task.getFormatSpec() + ", title=" + safeTitle);
 
         switch (task.getDownloadType()) {
-            case VIDEO_ONLY:
-                downloadVideoOnly(task, downloadDir, safeTitle);
-                break;
-            case AUDIO_ONLY:
-                downloadAudioOnly(task, downloadDir, safeTitle);
-                break;
-            case BEST_QUALITY_MERGE:
-                downloadAndMerge(task, cacheDir, downloadDir, safeTitle);
+            case VIDEO:
+            case AUDIO:
+                downloadWithYtDlp(task, safeTitle);
                 break;
             case THUMBNAIL:
                 downloadThumbnail(task, safeTitle);
@@ -156,12 +141,22 @@ public class DownloadService extends Service {
         }
     }
 
-    private void downloadVideoOnly(DownloadTask task, File outputDir, String filename) {
-        task.setStatus(DownloadTask.Status.DOWNLOADING_VIDEO);
+    private void downloadWithYtDlp(DownloadTask task, String filename) {
+        task.setStatus(DownloadTask.Status.DOWNLOADING);
         notifyTaskUpdated(task);
         updateNotification("Downloading: " + task.getTitle());
 
-        youtubeService.downloadFormat(task.getVideoId(), task.getVideoItag(), outputDir, filename,
+        File moviesDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "YTDownloader");
+        if (!moviesDir.exists()) {
+            moviesDir.mkdirs();
+        }
+
+        String outputPath = new File(moviesDir, filename + ".%(ext)s").getAbsolutePath();
+
+        String processId = youtubeService.downloadWithYtDlp(
+                task.getVideoId(),
+                task.getFormatSpec(),
+                outputPath,
                 new YoutubeService.DownloadCallback() {
                     @Override
                     public void onProgress(int progress) {
@@ -171,7 +166,10 @@ public class DownloadService extends Service {
 
                     @Override
                     public void onSuccess(String filePath) {
-                        moveToMoviesAndComplete(task, filePath);
+                        task.setOutputPath(filePath);
+                        MediaScannerConnection.scanFile(DownloadService.this,
+                                new String[]{filePath}, null, null);
+                        completeTask(task);
                     }
 
                     @Override
@@ -181,68 +179,12 @@ public class DownloadService extends Service {
                         notifyTaskFailed(task);
                     }
                 });
-    }
 
-    private void downloadAudioOnly(DownloadTask task, File outputDir, String filename) {
-        task.setStatus(DownloadTask.Status.DOWNLOADING_AUDIO);
-        notifyTaskUpdated(task);
-        updateNotification("Downloading: " + task.getTitle());
-
-        youtubeService.downloadFormat(task.getVideoId(), task.getAudioItag(), outputDir, filename,
-                new YoutubeService.DownloadCallback() {
-                    @Override
-                    public void onProgress(int progress) {
-                        task.setProgress(progress);
-                        notifyTaskUpdated(task);
-                    }
-
-                    @Override
-                    public void onSuccess(String filePath) {
-                        moveToMoviesAndComplete(task, filePath);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        task.setErrorMessage(error);
-                        task.setStatus(DownloadTask.Status.FAILED);
-                        notifyTaskFailed(task);
-                    }
-                });
-    }
-
-    private void downloadAndMerge(DownloadTask task, File cacheDir, File outputDir, String filename) {
-        task.setStatus(DownloadTask.Status.DOWNLOADING_VIDEO);
-        notifyTaskUpdated(task);
-        updateNotification("Downloading video: " + task.getTitle());
-
-        String outputPath = new File(outputDir, filename + ".mp4").getAbsolutePath();
-
-        // Download video first (no extension - library adds it automatically)
-        youtubeService.downloadFormat(task.getVideoId(), task.getVideoItag(), cacheDir, task.getId() + "_video",
-                new YoutubeService.DownloadCallback() {
-                    @Override
-                    public void onProgress(int progress) {
-                        task.setProgress(progress / 2); // 0-50% for video
-                        notifyTaskUpdated(task);
-                    }
-
-                    @Override
-                    public void onSuccess(String filePath) {
-                        // Video done, filePath is the actual path with correct extension
-                        downloadAudioForMerge(task, cacheDir, filePath, outputPath);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        task.setErrorMessage(error);
-                        task.setStatus(DownloadTask.Status.FAILED);
-                        notifyTaskFailed(task);
-                    }
-                });
+        task.setProcessId(processId);
     }
 
     private void downloadThumbnail(DownloadTask task, String safeTitle) {
-        task.setStatus(DownloadTask.Status.DOWNLOADING_VIDEO);
+        task.setStatus(DownloadTask.Status.DOWNLOADING);
         notifyTaskUpdated(task);
         updateNotification("Downloading cover: " + task.getTitle());
 
@@ -299,121 +241,6 @@ public class DownloadService extends Service {
                 notifyTaskFailed(task);
             }
         }).start();
-    }
-
-    private void downloadAudioForMerge(DownloadTask task, File cacheDir, String videoRealPath, String outputPath) {
-        task.setStatus(DownloadTask.Status.DOWNLOADING_AUDIO);
-        notifyTaskUpdated(task);
-        updateNotification("Downloading audio: " + task.getTitle());
-
-        youtubeService.downloadFormat(task.getVideoId(), task.getAudioItag(), cacheDir, task.getId() + "_audio",
-                new YoutubeService.DownloadCallback() {
-                    @Override
-                    public void onProgress(int progress) {
-                        task.setProgress(50 + progress / 2); // 50-100% for audio
-                        notifyTaskUpdated(task);
-                    }
-
-                    @Override
-                    public void onSuccess(String filePath) {
-                        // Audio done, use actual paths from callbacks
-                        mergeFiles(task, videoRealPath, filePath, outputPath);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        task.setErrorMessage(error);
-                        task.setStatus(DownloadTask.Status.FAILED);
-                        notifyTaskFailed(task);
-                    }
-                });
-    }
-
-    private void mergeFiles(DownloadTask task, String videoPath, String audioPath, String outputPath) {
-        task.setStatus(DownloadTask.Status.MERGING);
-        task.setProgress(100);
-        notifyTaskUpdated(task);
-        updateNotification("Merging: " + task.getTitle());
-
-        FFmpegHelper.mergeVideoAudio(videoPath, audioPath, outputPath, new FFmpegHelper.MergeCallback() {
-            @Override
-            public void onProgress(int progress) {
-                // FFmpeg progress is hard to track, just show indeterminate
-            }
-
-            @Override
-            public void onSuccess(String filePath) {
-                moveToMoviesAndComplete(task, filePath);
-            }
-
-            @Override
-            public void onError(String error) {
-                task.setErrorMessage(error);
-                task.setStatus(DownloadTask.Status.FAILED);
-                notifyTaskFailed(task);
-            }
-        });
-    }
-
-    private void moveToMoviesAndComplete(DownloadTask task, String filePath) {
-        File srcFile = new File(filePath);
-        if (!srcFile.exists()) {
-            AppLogger.e(TAG, "Source file not found: " + filePath);
-            task.setOutputPath(filePath);
-            completeTask(task);
-            return;
-        }
-
-        File moviesDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "YTDownloader");
-        if (!moviesDir.exists()) {
-            moviesDir.mkdirs();
-        }
-
-        File destFile = new File(moviesDir, srcFile.getName());
-        // Avoid overwrite: add suffix
-        if (destFile.exists()) {
-            String name = srcFile.getName();
-            int dot = name.lastIndexOf('.');
-            String base = dot > 0 ? name.substring(0, dot) : name;
-            String ext = dot > 0 ? name.substring(dot) : "";
-            int n = 1;
-            while (destFile.exists()) {
-                destFile = new File(moviesDir, base + "_" + n + ext);
-                n++;
-            }
-        }
-
-        boolean moved = srcFile.renameTo(destFile);
-        if (!moved) {
-            // renameTo may fail across mount points, try copy
-            try {
-                java.io.InputStream in = new java.io.FileInputStream(srcFile);
-                java.io.OutputStream out = new java.io.FileOutputStream(destFile);
-                byte[] buf = new byte[8192];
-                int len;
-                while ((len = in.read(buf)) > 0) {
-                    out.write(buf, 0, len);
-                }
-                in.close();
-                out.close();
-                srcFile.delete();
-                moved = true;
-            } catch (Exception e) {
-                AppLogger.e(TAG, "Failed to copy file to Movies", e);
-            }
-        }
-
-        if (moved) {
-            AppLogger.i(TAG, "Moved to gallery: " + destFile.getAbsolutePath());
-            task.setOutputPath(destFile.getAbsolutePath());
-            // Notify media scanner so it shows in gallery
-            MediaScannerConnection.scanFile(this,
-                    new String[]{destFile.getAbsolutePath()}, null, null);
-        } else {
-            AppLogger.w(TAG, "Move failed, keeping original: " + filePath);
-            task.setOutputPath(filePath);
-        }
-        completeTask(task);
     }
 
     private void completeTask(DownloadTask task) {
