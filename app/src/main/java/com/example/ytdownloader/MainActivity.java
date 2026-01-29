@@ -13,13 +13,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.view.LayoutInflater;
 import android.view.View;
-import android.widget.ArrayAdapter;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.RadioGroup;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -43,7 +42,6 @@ import com.example.ytdownloader.service.YoutubeService;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements DownloadService.DownloadListener, AppLogger.LogListener {
@@ -56,9 +54,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private ImageView ivThumbnail;
     private TextView tvTitle;
     private TextView tvDuration;
-    private RadioGroup rgOptions;
-    private Spinner spinnerFormat;
-    private MaterialButton btnDownload;
+    private LinearLayout llFormats;
     private ProgressBar progressLoading;
     private RecyclerView rvDownloads;
     private TextView tvEmpty;
@@ -145,9 +141,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         ivThumbnail = findViewById(R.id.ivThumbnail);
         tvTitle = findViewById(R.id.tvTitle);
         tvDuration = findViewById(R.id.tvDuration);
-        rgOptions = findViewById(R.id.rgOptions);
-        spinnerFormat = findViewById(R.id.spinnerFormat);
-        btnDownload = findViewById(R.id.btnDownload);
+        llFormats = findViewById(R.id.llFormats);
         progressLoading = findViewById(R.id.progressLoading);
         rvDownloads = findViewById(R.id.rvDownloads);
         tvEmpty = findViewById(R.id.tvEmpty);
@@ -165,6 +159,11 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
         adapter = new DownloadListAdapter(this);
         adapter.setOnTaskRemovedListener(this::updateEmptyState);
+        adapter.setOnTaskDeleteListener((taskId, deleteFile) -> {
+            if (serviceBound) {
+                downloadService.removeTask(taskId);
+            }
+        });
         rvDownloads.setLayoutManager(new LinearLayoutManager(this));
         rvDownloads.setAdapter(adapter);
     }
@@ -186,10 +185,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
             parseVideo(videoId);
         });
-
-        rgOptions.setOnCheckedChangeListener((group, checkedId) -> updateFormatSpinner());
-
-        btnDownload.setOnClickListener(v -> startDownload());
 
         tvLogToggle.setOnClickListener(v -> toggleLogPanel());
 
@@ -283,99 +278,109 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                     .into(ivThumbnail);
         }
 
-        updateFormatSpinner();
+        buildFormatList(videoInfo);
     }
 
-    private void updateFormatSpinner() {
-        if (currentVideoInfo == null) return;
+    private void buildFormatList(VideoInfo videoInfo) {
+        llFormats.removeAllViews();
+        LayoutInflater inflater = LayoutInflater.from(this);
 
-        List<String> options = new ArrayList<>();
-        List<VideoInfo.FormatOption> formats;
-
-        int checkedId = rgOptions.getCheckedRadioButtonId();
-        if (checkedId == R.id.rbVideoOnly) {
-            formats = currentVideoInfo.getVideoFormats();
-            // Show only formats with audio
-            for (VideoInfo.FormatOption format : formats) {
+        // --- Video section ---
+        List<VideoInfo.FormatOption> videoFormats = videoInfo.getVideoFormats();
+        if (videoFormats != null && !videoFormats.isEmpty()) {
+            addSectionHeader("Video");
+            for (VideoInfo.FormatOption format : videoFormats) {
+                String label = format.getQuality();
                 if (format.hasAudio()) {
-                    options.add(format.toString());
+                    label += " (with audio)";
                 }
+                String size = format.getContentLength() > 0 ? formatSize(format.getContentLength()) : "";
+                addFormatRow(inflater, label, size, v -> startFormatDownload(videoInfo, format, true));
             }
-        } else if (checkedId == R.id.rbAudioOnly) {
-            formats = currentVideoInfo.getAudioFormats();
-            for (VideoInfo.FormatOption format : formats) {
-                options.add(format.toString());
-            }
-        } else {
-            // Best quality merge - just show info
-            options.add("Best video + Best audio (merged)");
         }
 
-        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_item, options);
-        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerFormat.setAdapter(spinnerAdapter);
+        // --- Audio section ---
+        List<VideoInfo.FormatOption> audioFormats = videoInfo.getAudioFormats();
+        if (audioFormats != null && !audioFormats.isEmpty()) {
+            addSectionHeader("Audio");
+            for (VideoInfo.FormatOption format : audioFormats) {
+                String label = format.getQuality();
+                String size = format.getContentLength() > 0 ? formatSize(format.getContentLength()) : "";
+                addFormatRow(inflater, label, size, v -> startFormatDownload(videoInfo, format, false));
+            }
+        }
+
+        // --- Other section (cover image) ---
+        List<String> thumbUrls = videoInfo.getThumbnailUrls();
+        if (thumbUrls != null && !thumbUrls.isEmpty()) {
+            addSectionHeader("Other");
+            String coverUrl = thumbUrls.get(thumbUrls.size() - 1);
+            addFormatRow(inflater, "Cover image", "", v -> startThumbnailDownload(videoInfo, coverUrl));
+        }
     }
 
-    private void startDownload() {
-        if (currentVideoInfo == null || !serviceBound) return;
+    private void addSectionHeader(String title) {
+        TextView header = new TextView(this);
+        header.setText("── " + title + " ──");
+        header.setTextColor(ContextCompat.getColor(this, R.color.on_surface_secondary));
+        header.setTextSize(12);
+        header.setPadding(4, 12, 4, 4);
+        llFormats.addView(header);
+    }
 
-        int checkedId = rgOptions.getCheckedRadioButtonId();
-        DownloadTask.DownloadType downloadType;
-        String videoItag = null;
-        String audioItag = null;
+    private void addFormatRow(LayoutInflater inflater, String quality, String size, View.OnClickListener downloadListener) {
+        View row = inflater.inflate(R.layout.item_format_option, llFormats, false);
+        TextView tvQuality = row.findViewById(R.id.tvFormatQuality);
+        TextView tvSize = row.findViewById(R.id.tvFormatSize);
+        View btnDownload = row.findViewById(R.id.btnFormatDownload);
 
-        if (checkedId == R.id.rbVideoOnly) {
-            downloadType = DownloadTask.DownloadType.VIDEO_ONLY;
-            List<VideoInfo.FormatOption> formats = currentVideoInfo.getVideoFormats();
-            int selectedIndex = spinnerFormat.getSelectedItemPosition();
-            int withAudioIndex = 0;
-            for (VideoInfo.FormatOption format : formats) {
-                if (format.hasAudio()) {
-                    if (withAudioIndex == selectedIndex) {
-                        videoItag = format.getItag();
-                        break;
-                    }
-                    withAudioIndex++;
-                }
-            }
-        } else if (checkedId == R.id.rbAudioOnly) {
-            downloadType = DownloadTask.DownloadType.AUDIO_ONLY;
-            List<VideoInfo.FormatOption> formats = currentVideoInfo.getAudioFormats();
-            int selectedIndex = spinnerFormat.getSelectedItemPosition();
-            if (selectedIndex < formats.size()) {
-                audioItag = formats.get(selectedIndex).getItag();
-            }
-        } else {
-            downloadType = DownloadTask.DownloadType.BEST_QUALITY_MERGE;
-            videoItag = youtubeService.getBestVideoItag(currentVideoInfo);
-            audioItag = youtubeService.getBestAudioItag(currentVideoInfo);
-        }
+        tvQuality.setText(quality);
+        tvSize.setText(size);
+        btnDownload.setOnClickListener(downloadListener);
 
-        if ((downloadType == DownloadTask.DownloadType.VIDEO_ONLY && videoItag == null) ||
-                (downloadType == DownloadTask.DownloadType.AUDIO_ONLY && audioItag == null) ||
-                (downloadType == DownloadTask.DownloadType.BEST_QUALITY_MERGE && (videoItag == null || audioItag == null))) {
-            Toast.makeText(this, "No suitable format found", Toast.LENGTH_SHORT).show();
-            appendLog("ERROR", "No suitable format found for download type: " + downloadType);
-            return;
-        }
+        llFormats.addView(row);
+    }
 
-        appendLog("INFO", "Download started: " + currentVideoInfo.getTitle() + " [" + downloadType + "]");
+    private void startFormatDownload(VideoInfo videoInfo, VideoInfo.FormatOption format, boolean isVideo) {
+        if (!serviceBound) return;
+
+        DownloadTask.DownloadType type = isVideo ? DownloadTask.DownloadType.VIDEO_ONLY : DownloadTask.DownloadType.AUDIO_ONLY;
+        String videoItag = isVideo ? format.getItag() : null;
+        String audioItag = isVideo ? null : format.getItag();
+
+        appendLog("INFO", "Download started: " + videoInfo.getTitle() + " [" + type + " " + format.getQuality() + "]");
 
         downloadService.createTask(
-                currentVideoInfo.getVideoId(),
-                currentVideoInfo.getTitle(),
-                currentVideoInfo.getThumbnailUrl(),
-                downloadType,
+                videoInfo.getVideoId(),
+                videoInfo.getTitle(),
+                videoInfo.getThumbnailUrl(),
+                type,
                 videoItag,
                 audioItag
         );
 
-        Toast.makeText(this, "Download started", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Download started: " + format.getQuality(), Toast.LENGTH_SHORT).show();
+    }
 
-        // Keep URL, only hide video info card
-        cardVideoInfo.setVisibility(View.GONE);
-        currentVideoInfo = null;
+    private void startThumbnailDownload(VideoInfo videoInfo, String coverUrl) {
+        if (!serviceBound) return;
+
+        appendLog("INFO", "Cover download started: " + videoInfo.getTitle());
+
+        downloadService.createThumbnailTask(
+                videoInfo.getVideoId(),
+                videoInfo.getTitle(),
+                videoInfo.getThumbnailUrl(),
+                coverUrl
+        );
+
+        Toast.makeText(this, "Cover download started", Toast.LENGTH_SHORT).show();
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
     private void launchWebViewLogin() {

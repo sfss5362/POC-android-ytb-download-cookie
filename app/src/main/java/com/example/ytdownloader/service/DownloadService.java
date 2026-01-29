@@ -21,10 +21,16 @@ import com.example.ytdownloader.manager.FFmpegHelper;
 import com.example.ytdownloader.model.DownloadTask;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.ResponseBody;
 
 public class DownloadService extends Service {
     private static final String TAG = "DownloadService";
@@ -85,12 +91,30 @@ public class DownloadService extends Service {
         return new ArrayList<>(tasks.values());
     }
 
+    public void removeTask(String taskId) {
+        tasks.remove(taskId);
+    }
+
     public String createTask(String videoId, String title, String thumbnailUrl, DownloadTask.DownloadType type,
                              String videoItag, String audioItag) {
         String taskId = UUID.randomUUID().toString();
         DownloadTask task = new DownloadTask(taskId, videoId, title, thumbnailUrl, type);
         task.setVideoItag(videoItag);
         task.setAudioItag(audioItag);
+        tasks.put(taskId, task);
+
+        for (DownloadListener listener : listeners) {
+            listener.onTaskAdded(task);
+        }
+
+        startDownload(task);
+        return taskId;
+    }
+
+    public String createThumbnailTask(String videoId, String title, String thumbnailUrl, String downloadUrl) {
+        String taskId = UUID.randomUUID().toString();
+        DownloadTask task = new DownloadTask(taskId, videoId, title, thumbnailUrl, DownloadTask.DownloadType.THUMBNAIL);
+        task.setDownloadUrl(downloadUrl);
         tasks.put(taskId, task);
 
         for (DownloadListener listener : listeners) {
@@ -125,6 +149,9 @@ public class DownloadService extends Service {
                 break;
             case BEST_QUALITY_MERGE:
                 downloadAndMerge(task, cacheDir, downloadDir, safeTitle);
+                break;
+            case THUMBNAIL:
+                downloadThumbnail(task, safeTitle);
                 break;
         }
     }
@@ -212,6 +239,66 @@ public class DownloadService extends Service {
                         notifyTaskFailed(task);
                     }
                 });
+    }
+
+    private void downloadThumbnail(DownloadTask task, String safeTitle) {
+        task.setStatus(DownloadTask.Status.DOWNLOADING_VIDEO);
+        notifyTaskUpdated(task);
+        updateNotification("Downloading cover: " + task.getTitle());
+
+        new Thread(() -> {
+            try {
+                String url = task.getDownloadUrl();
+                OkHttpClient client = new OkHttpClient();
+                Request request = new Request.Builder().url(url).build();
+                okhttp3.Response response = client.newCall(request).execute();
+                ResponseBody body = response.body();
+                if (!response.isSuccessful() || body == null) {
+                    task.setErrorMessage("HTTP error: " + response.code());
+                    task.setStatus(DownloadTask.Status.FAILED);
+                    notifyTaskFailed(task);
+                    return;
+                }
+
+                File moviesDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "YTDownloader");
+                if (!moviesDir.exists()) {
+                    moviesDir.mkdirs();
+                }
+
+                String ext = ".jpg";
+                String contentType = body.contentType() != null ? body.contentType().toString() : "";
+                if (contentType.contains("png")) ext = ".png";
+                else if (contentType.contains("webp")) ext = ".webp";
+
+                File destFile = new File(moviesDir, safeTitle + "_cover" + ext);
+                int n = 1;
+                while (destFile.exists()) {
+                    destFile = new File(moviesDir, safeTitle + "_cover_" + n + ext);
+                    n++;
+                }
+
+                InputStream in = body.byteStream();
+                FileOutputStream out = new FileOutputStream(destFile);
+                byte[] buf = new byte[8192];
+                int len;
+                while ((len = in.read(buf)) > 0) {
+                    out.write(buf, 0, len);
+                }
+                in.close();
+                out.close();
+
+                AppLogger.i(TAG, "Cover saved: " + destFile.getAbsolutePath());
+                task.setOutputPath(destFile.getAbsolutePath());
+                MediaScannerConnection.scanFile(this,
+                        new String[]{destFile.getAbsolutePath()}, null, null);
+                completeTask(task);
+            } catch (Exception e) {
+                AppLogger.e(TAG, "Cover download failed", e);
+                task.setErrorMessage(e.getMessage());
+                task.setStatus(DownloadTask.Status.FAILED);
+                notifyTaskFailed(task);
+            }
+        }).start();
     }
 
     private void downloadAudioForMerge(DownloadTask task, File cacheDir, String videoRealPath, String outputPath) {

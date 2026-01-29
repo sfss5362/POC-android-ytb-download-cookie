@@ -10,6 +10,7 @@ public class VideoInfo {
     private long durationSeconds;
     private List<FormatOption> videoFormats;
     private List<FormatOption> audioFormats;
+    private List<String> thumbnailUrls;
 
     public static class FormatOption {
         private String itag;
@@ -67,6 +68,9 @@ public class VideoInfo {
 
     public List<FormatOption> getAudioFormats() { return audioFormats; }
     public void setAudioFormats(List<FormatOption> audioFormats) { this.audioFormats = audioFormats; }
+
+    public List<String> getThumbnailUrls() { return thumbnailUrls; }
+    public void setThumbnailUrls(List<String> thumbnailUrls) { this.thumbnailUrls = thumbnailUrls; }
 
     public String getFormattedDuration() {
         long hours = durationSeconds / 3600;

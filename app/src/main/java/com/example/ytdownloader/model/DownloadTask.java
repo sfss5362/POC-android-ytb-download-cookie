@@ -14,7 +14,8 @@ public class DownloadTask {
     public enum DownloadType {
         VIDEO_ONLY,
         AUDIO_ONLY,
-        BEST_QUALITY_MERGE
+        BEST_QUALITY_MERGE,
+        THUMBNAIL
     }
 
     private String id;
@@ -30,6 +31,7 @@ public class DownloadTask {
     private String errorMessage;
     private long totalBytes;
     private long downloadedBytes;
+    private String downloadUrl;
 
     public DownloadTask(String id, String videoId, String title, String thumbnailUrl, DownloadType downloadType) {
         this.id = id;
@@ -70,6 +72,9 @@ public class DownloadTask {
 
     public long getDownloadedBytes() { return downloadedBytes; }
     public void setDownloadedBytes(long downloadedBytes) { this.downloadedBytes = downloadedBytes; }
+
+    public String getDownloadUrl() { return downloadUrl; }
+    public void setDownloadUrl(String downloadUrl) { this.downloadUrl = downloadUrl; }
 
     public String getStatusText() {
         switch (status) {

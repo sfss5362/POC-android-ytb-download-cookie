@@ -1,5 +1,6 @@
 package com.example.ytdownloader.adapter;
 
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -26,9 +27,14 @@ import java.util.List;
 
 public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapter.ViewHolder> {
 
+    public interface OnTaskDeleteListener {
+        void onTaskDeleted(String taskId, boolean deleteFile);
+    }
+
     private final Context context;
     private final List<DownloadTask> tasks = new ArrayList<>();
     private Runnable onTaskRemovedListener;
+    private OnTaskDeleteListener onTaskDeleteListener;
 
     public DownloadListAdapter(Context context) {
         this.context = context;
@@ -36,6 +42,10 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
 
     public void setOnTaskRemovedListener(Runnable listener) {
         this.onTaskRemovedListener = listener;
+    }
+
+    public void setOnTaskDeleteListener(OnTaskDeleteListener listener) {
+        this.onTaskDeleteListener = listener;
     }
 
     public void addTask(DownloadTask task) {
@@ -81,10 +91,11 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
                     .into(holder.ivThumb);
         }
 
-        // Update progress bar and folder button
+        // Update progress bar, folder button, delete button
         switch (task.getStatus()) {
             case COMPLETED:
                 holder.progressBar.setVisibility(View.GONE);
+                holder.btnAction.setVisibility(View.VISIBLE);
                 holder.btnAction.setImageResource(android.R.drawable.ic_menu_share);
                 holder.btnAction.setOnClickListener(v -> shareFile(task));
                 holder.btnFolder.setVisibility(View.VISIBLE);
@@ -94,26 +105,33 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
                         Toast.makeText(context, f.getParent(), Toast.LENGTH_LONG).show();
                     }
                 });
+                holder.btnDelete.setVisibility(View.VISIBLE);
+                holder.btnDelete.setOnClickListener(v -> showDeleteDialog(task, holder.getAdapterPosition()));
                 break;
             case FAILED:
             case CANCELLED:
                 holder.progressBar.setVisibility(View.GONE);
-                holder.btnAction.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-                holder.btnAction.setOnClickListener(v -> removeTask(holder.getAdapterPosition()));
+                holder.btnAction.setVisibility(View.GONE);
                 holder.btnFolder.setVisibility(View.GONE);
+                holder.btnDelete.setVisibility(View.VISIBLE);
+                holder.btnDelete.setOnClickListener(v -> deleteTask(task, holder.getAdapterPosition(), false));
                 break;
             case MERGING:
                 holder.progressBar.setVisibility(View.VISIBLE);
                 holder.progressBar.setIndeterminate(true);
+                holder.btnAction.setVisibility(View.VISIBLE);
                 holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
                 holder.btnFolder.setVisibility(View.GONE);
+                holder.btnDelete.setVisibility(View.GONE);
                 break;
             default:
                 holder.progressBar.setVisibility(View.VISIBLE);
                 holder.progressBar.setIndeterminate(false);
                 holder.progressBar.setProgress(task.getProgress());
+                holder.btnAction.setVisibility(View.VISIBLE);
                 holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
                 holder.btnFolder.setVisibility(View.GONE);
+                holder.btnDelete.setVisibility(View.GONE);
                 break;
         }
 
@@ -130,13 +148,43 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
         return tasks.size();
     }
 
-    private void removeTask(int position) {
-        if (position >= 0 && position < tasks.size()) {
-            tasks.remove(position);
-            notifyItemRemoved(position);
-            if (onTaskRemovedListener != null) {
-                onTaskRemovedListener.run();
+    private void showDeleteDialog(DownloadTask task, int position) {
+        boolean fileExists = task.getOutputPath() != null && new File(task.getOutputPath()).exists();
+
+        if (!fileExists) {
+            deleteTask(task, position, false);
+            return;
+        }
+
+        new AlertDialog.Builder(context)
+                .setTitle("Delete record")
+                .setMessage("Also delete the downloaded file?")
+                .setPositiveButton("Delete file too", (dialog, which) -> deleteTask(task, position, true))
+                .setNegativeButton("Record only", (dialog, which) -> deleteTask(task, position, false))
+                .setNeutralButton("Cancel", null)
+                .show();
+    }
+
+    private void deleteTask(DownloadTask task, int position, boolean deleteFile) {
+        if (position < 0 || position >= tasks.size()) return;
+
+        if (deleteFile && task.getOutputPath() != null) {
+            File file = new File(task.getOutputPath());
+            if (file.exists()) {
+                boolean deleted = file.delete();
+                Toast.makeText(context, deleted ? "File deleted" : "Failed to delete file", Toast.LENGTH_SHORT).show();
             }
+        }
+
+        String taskId = task.getId();
+        tasks.remove(position);
+        notifyItemRemoved(position);
+
+        if (onTaskDeleteListener != null) {
+            onTaskDeleteListener.onTaskDeleted(taskId, deleteFile);
+        }
+        if (onTaskRemovedListener != null) {
+            onTaskRemovedListener.run();
         }
     }
 
@@ -170,6 +218,7 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
         ProgressBar progressBar;
         ImageButton btnAction;
         ImageButton btnFolder;
+        ImageButton btnDelete;
 
         ViewHolder(View itemView) {
             super(itemView);
@@ -179,6 +228,7 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
             progressBar = itemView.findViewById(R.id.progressBar);
             btnAction = itemView.findViewById(R.id.btnAction);
             btnFolder = itemView.findViewById(R.id.btnFolder);
+            btnDelete = itemView.findViewById(R.id.btnDelete);
         }
     }
 }

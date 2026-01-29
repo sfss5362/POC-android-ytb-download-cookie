@@ -19,7 +19,10 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -142,51 +145,107 @@ public class YoutubeService {
 
                 com.github.kiulian.downloader.model.videos.VideoInfo ytVideoInfo = response.data();
 
+                List<String> thumbnails = ytVideoInfo.details().thumbnails();
+                String bestThumbnail = (thumbnails != null && !thumbnails.isEmpty())
+                        ? thumbnails.get(thumbnails.size() - 1) : null;
+
                 VideoInfo videoInfo = new VideoInfo(
                         videoId,
                         ytVideoInfo.details().title(),
                         ytVideoInfo.details().author(),
-                        ytVideoInfo.details().thumbnails().get(0),
+                        bestThumbnail,
                         ytVideoInfo.details().lengthSeconds()
                 );
+                videoInfo.setThumbnailUrls(thumbnails);
 
-                // Get video formats (video only, no audio)
-                List<VideoInfo.FormatOption> videoFormats = new ArrayList<>();
+                // --- Video formats: DASH only, one per resolution, prefer muxed > video-only, prefer mp4 ---
+                // Key = resolution number (e.g. 360, 720, 1080)
+                Map<Integer, VideoInfo.FormatOption> videoDedup = new HashMap<>();
+
+                // Pass 1: video-only mp4
                 for (VideoFormat format : ytVideoInfo.videoFormats()) {
-                    videoFormats.add(new VideoInfo.FormatOption(
-                            format.itag().id() + "",
-                            format.qualityLabel(),
-                            format.mimeType(),
-                            format.contentLength() != null ? format.contentLength() : 0,
-                            false,
-                            true
-                    ));
+                    String mime = format.mimeType();
+                    if (mime == null || !mime.contains("mp4")) continue;
+                    int res = parseResolution(format.qualityLabel());
+                    if (res <= 0) continue;
+                    videoDedup.put(res, new VideoInfo.FormatOption(
+                            format.itag().id() + "", format.qualityLabel(), mime,
+                            format.contentLength() != null ? format.contentLength() : 0, false, true));
+                }
+                // Pass 2: video-only non-mp4 non-HLS (fallback if no mp4 for that res)
+                for (VideoFormat format : ytVideoInfo.videoFormats()) {
+                    String mime = format.mimeType();
+                    if (mime == null || mime.contains("mp4")) continue;
+                    if (isHls(mime)) continue;
+                    int res = parseResolution(format.qualityLabel());
+                    if (res <= 0 || videoDedup.containsKey(res)) continue;
+                    videoDedup.put(res, new VideoInfo.FormatOption(
+                            format.itag().id() + "", format.qualityLabel(), mime,
+                            format.contentLength() != null ? format.contentLength() : 0, false, true));
+                }
+                // Pass 3: muxed mp4 — overwrite video-only for same resolution (muxed preferred)
+                for (VideoWithAudioFormat format : ytVideoInfo.videoWithAudioFormats()) {
+                    String mime = format.mimeType();
+                    if (mime == null || !mime.contains("mp4")) continue;
+                    int res = parseResolution(format.qualityLabel());
+                    if (res <= 0) continue;
+                    String label = format.qualityLabel();
+                    if (!label.contains("with audio")) label += " (with audio)";
+                    videoDedup.put(res, new VideoInfo.FormatOption(
+                            format.itag().id() + "", label, mime,
+                            format.contentLength() != null ? format.contentLength() : 0, true, true));
+                }
+                // Pass 4: muxed non-mp4 non-HLS (only if no entry yet for that res)
+                for (VideoWithAudioFormat format : ytVideoInfo.videoWithAudioFormats()) {
+                    String mime = format.mimeType();
+                    if (mime == null || mime.contains("mp4")) continue;
+                    if (isHls(mime)) continue;
+                    int res = parseResolution(format.qualityLabel());
+                    if (res <= 0 || videoDedup.containsKey(res)) continue;
+                    String label = format.qualityLabel();
+                    if (!label.contains("with audio")) label += " (with audio)";
+                    videoDedup.put(res, new VideoInfo.FormatOption(
+                            format.itag().id() + "", label, mime,
+                            format.contentLength() != null ? format.contentLength() : 0, true, true));
                 }
 
-                // Get video with audio formats
-                for (VideoWithAudioFormat format : ytVideoInfo.videoWithAudioFormats()) {
-                    videoFormats.add(new VideoInfo.FormatOption(
-                            format.itag().id() + "",
-                            format.qualityLabel() + " (with audio)",
-                            format.mimeType(),
-                            format.contentLength() != null ? format.contentLength() : 0,
-                            true,
-                            true
-                    ));
+                // Sort by resolution ascending
+                List<Integer> sortedRes = new ArrayList<>(videoDedup.keySet());
+                Collections.sort(sortedRes);
+                List<VideoInfo.FormatOption> videoFormats = new ArrayList<>();
+                for (int r : sortedRes) {
+                    videoFormats.add(videoDedup.get(r));
                 }
                 videoInfo.setVideoFormats(videoFormats);
 
-                // Get audio formats
-                List<VideoInfo.FormatOption> audioFormats = new ArrayList<>();
+                // --- Audio formats: DASH only, one per audioQuality, prefer m4a, sort by bitrate ---
+                Map<String, VideoInfo.FormatOption> audioDedup = new HashMap<>();
+                Map<String, Integer> audioBitrate = new HashMap<>();
                 for (AudioFormat format : ytVideoInfo.audioFormats()) {
-                    audioFormats.add(new VideoInfo.FormatOption(
-                            format.itag().id() + "",
-                            format.audioQuality().name() + " " + format.averageBitrate() / 1000 + "kbps",
-                            format.mimeType(),
-                            format.contentLength() != null ? format.contentLength() : 0,
-                            true,
-                            false
-                    ));
+                    String mime = format.mimeType();
+                    if (mime == null || isHls(mime)) continue;
+                    String qualKey = format.audioQuality().name();
+                    boolean isMp4 = mime.contains("mp4");
+                    boolean exists = audioDedup.containsKey(qualKey);
+                    // prefer m4a: overwrite if current is mp4 and old is not, or no entry yet
+                    if (!exists || (isMp4 && !audioDedup.get(qualKey).getMimeType().contains("mp4"))) {
+                        int kbps = format.averageBitrate() / 1000;
+                        audioDedup.put(qualKey, new VideoInfo.FormatOption(
+                                format.itag().id() + "", qualKey.toLowerCase() + " " + kbps + "kbps", mime,
+                                format.contentLength() != null ? format.contentLength() : 0, true, false));
+                        audioBitrate.put(qualKey, kbps);
+                    }
+                }
+                // Sort by bitrate ascending
+                List<Map.Entry<String, VideoInfo.FormatOption>> audioEntries = new ArrayList<>(audioDedup.entrySet());
+                Collections.sort(audioEntries, (a, b) -> {
+                    int ba = audioBitrate.containsKey(a.getKey()) ? audioBitrate.get(a.getKey()) : 0;
+                    int bb = audioBitrate.containsKey(b.getKey()) ? audioBitrate.get(b.getKey()) : 0;
+                    return Integer.compare(ba, bb);
+                });
+                List<VideoInfo.FormatOption> audioFormats = new ArrayList<>();
+                for (Map.Entry<String, VideoInfo.FormatOption> e : audioEntries) {
+                    audioFormats.add(e.getValue());
                 }
                 videoInfo.setAudioFormats(audioFormats);
 
@@ -349,6 +408,16 @@ public class YoutubeService {
         }
 
         return null;
+    }
+
+    private static int parseResolution(String qualityLabel) {
+        if (qualityLabel == null) return 0;
+        Matcher m = Pattern.compile("(\\d+)p").matcher(qualityLabel);
+        return m.find() ? Integer.parseInt(m.group(1)) : 0;
+    }
+
+    private static boolean isHls(String mime) {
+        return mime.contains("mp2t") || mime.contains("x-mpegURL") || mime.contains("m3u8");
     }
 
     public String getBestVideoItag(VideoInfo videoInfo) {

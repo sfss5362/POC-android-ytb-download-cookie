@@ -80,6 +80,15 @@
                 android:src="@android:drawable/ic_media_pause"
                 android:contentDescription="Action" />
 
+            <ImageButton
+                android:id="@+id/btnDelete"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:contentDescription="Delete"
+                android:visibility="gone" />
+
         </LinearLayout>
 
         <ProgressBar
