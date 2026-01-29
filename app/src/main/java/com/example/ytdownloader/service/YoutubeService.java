@@ -26,6 +26,7 @@ import java.util.regex.Pattern;
 public class YoutubeService {
     private static final String TAG = "YoutubeService";
     private static final String BOT_DETECTION_MESSAGE = "Sign in to confirm you're not a bot";
+    private static final String LOGIN_REQUIRED = "LOGIN_REQUIRED";
 
     private final Context context;
     private final CookieStorage cookieStorage;
@@ -51,18 +52,22 @@ public class YoutubeService {
 
     private void initDownloader() {
         String cookies = cookieStorage.getCookies();
+        Log.d(TAG, "initDownloader - cookies present: " + (cookies != null && !cookies.isEmpty()));
         if (cookies != null && !cookies.isEmpty()) {
             try {
                 File cookieFile = createCookieFile(cookies);
+                Log.d(TAG, "Cookie file created: " + cookieFile.getAbsolutePath());
                 com.github.kiulian.downloader.Config config = new com.github.kiulian.downloader.Config.Builder()
                         .cookies(cookieFile.getAbsolutePath())
                         .build();
                 downloader = new YoutubeDownloader(config);
+                Log.d(TAG, "YoutubeDownloader initialized with cookies");
             } catch (IOException e) {
                 Log.e(TAG, "Failed to create cookie file", e);
                 downloader = new YoutubeDownloader();
             }
         } else {
+            Log.d(TAG, "YoutubeDownloader initialized without cookies");
             downloader = new YoutubeDownloader();
         }
     }
@@ -111,18 +116,29 @@ public class YoutubeService {
     public void parseVideo(String videoId, ParseCallback callback) {
         new Thread(() -> {
             try {
+                Log.d(TAG, "Parsing video: " + videoId);
+                Log.d(TAG, "Has cookies: " + (cookieStorage.getCookies() != null && !cookieStorage.getCookies().isEmpty()));
+
                 RequestVideoInfo request = new RequestVideoInfo(videoId);
                 Response<com.github.kiulian.downloader.model.videos.VideoInfo> response = downloader.getVideoInfo(request);
 
                 if (!response.ok()) {
                     String error = response.error().getMessage();
-                    if (error != null && error.contains(BOT_DETECTION_MESSAGE)) {
+                    Log.e(TAG, "Parse failed: " + error);
+                    if (response.error() != null) {
+                        Log.e(TAG, "Error details:", response.error());
+                    }
+                    // Check for bot detection / login required
+                    if (error != null && (error.contains(BOT_DETECTION_MESSAGE) || error.contains(LOGIN_REQUIRED))) {
+                        Log.w(TAG, "Bot detection / Login required - triggering WebView login");
                         callback.onBotDetected();
                     } else {
                         callback.onError(error != null ? error : "Failed to parse video");
                     }
                     return;
                 }
+
+                Log.d(TAG, "Parse successful");
 
                 com.github.kiulian.downloader.model.videos.VideoInfo ytVideoInfo = response.data();
 
@@ -177,11 +193,14 @@ public class YoutubeService {
                 callback.onSuccess(videoInfo);
 
             } catch (Exception e) {
-                Log.e(TAG, "Error parsing video", e);
+                Log.e(TAG, "Exception parsing video: " + e.getClass().getName() + " - " + e.getMessage());
+                e.printStackTrace();
                 String message = e.getMessage();
-                if (message != null && message.contains(BOT_DETECTION_MESSAGE)) {
+                if (message != null && (message.contains(BOT_DETECTION_MESSAGE) || message.contains(LOGIN_REQUIRED))) {
+                    Log.w(TAG, "Bot detection triggered (exception)");
                     callback.onBotDetected();
                 } else {
+                    Log.e(TAG, "Parse error: " + message);
                     callback.onError(message != null ? message : "Unknown error");
                 }
             }

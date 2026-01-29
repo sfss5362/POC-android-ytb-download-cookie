@@ -1,6 +1,4 @@
-plugins {
-    id 'com.android.application'
-}
+apply plugin: 'com.android.application'
 
 android {
     namespace 'com.example.ytdownloader'
@@ -40,9 +38,20 @@ android {
     }
 }
 
+configurations.all {
+    exclude group: 'ch.qos.logback', module: 'logback-classic'
+    exclude group: 'ch.qos.logback', module: 'logback-core'
+    // Force older SLF4J that doesn't require service provider
+    resolutionStrategy {
+        force 'org.slf4j:slf4j-api:1.7.30'
+    }
+}
+
 dependencies {
-    // YouTube downloader library
-    implementation 'com.github.sfss5362:java-youtube-downloader---fix-cookies:master-SNAPSHOT'
+    // YouTube downloader library (exclude incompatible logging)
+    implementation('com.github.sfss5362:java-youtube-downloader---fix-cookies:master-SNAPSHOT') {
+        exclude group: 'ch.qos.logback'
+    }
 
     // No external FFmpeg needed - using Android MediaMuxer
 

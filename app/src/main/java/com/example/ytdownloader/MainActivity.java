@@ -1,6 +1,8 @@
 package com.example.ytdownloader;
 
 import android.Manifest;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -11,11 +13,13 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.RadioGroup;
+import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -39,10 +43,16 @@ import com.example.ytdownloader.service.YoutubeService;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity implements DownloadService.DownloadListener {
+    private static final String TAG = "MainActivity";
     private static final int REQUEST_NOTIFICATION_PERMISSION = 1001;
 
     private TextInputEditText etUrl;
@@ -58,6 +68,13 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private RecyclerView rvDownloads;
     private TextView tvEmpty;
 
+    // Log UI
+    private CardView cardLog;
+    private TextView tvLog;
+    private MaterialButton btnCopyLog;
+    private MaterialButton btnClearLog;
+    private final StringBuilder logBuffer = new StringBuilder();
+
     private YoutubeService youtubeService;
     private DownloadService downloadService;
     private boolean serviceBound = false;
@@ -66,6 +83,8 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
     private VideoInfo currentVideoInfo;
     private String pendingVideoId;
+
+    private final SimpleDateFormat logTimeFmt = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
 
     private final ActivityResultLauncher<Intent> webViewLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
@@ -76,11 +95,13 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                     if (downloadService != null) {
                         downloadService.refreshYoutubeService();
                     }
+                    appendLog("INFO", "Login successful, cookies saved. Retrying parse...");
                     if (pendingVideoId != null) {
                         parseVideo(pendingVideoId);
                     }
                 } else {
                     Toast.makeText(this, "Login cancelled", Toast.LENGTH_SHORT).show();
+                    appendLog("WARN", "Login cancelled by user");
                 }
             }
     );
@@ -133,6 +154,15 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         rvDownloads = findViewById(R.id.rvDownloads);
         tvEmpty = findViewById(R.id.tvEmpty);
 
+        // Log UI
+        cardLog = findViewById(R.id.cardLog);
+        tvLog = findViewById(R.id.tvLog);
+        btnCopyLog = findViewById(R.id.btnCopyLog);
+        btnClearLog = findViewById(R.id.btnClearLog);
+
+        // Default test URL
+        etUrl.setText("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+
         adapter = new DownloadListAdapter(this);
         rvDownloads.setLayoutManager(new LinearLayoutManager(this));
         rvDownloads.setAdapter(adapter);
@@ -149,6 +179,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             String videoId = youtubeService.extractVideoId(url);
             if (videoId == null) {
                 Toast.makeText(this, R.string.error_invalid_url, Toast.LENGTH_SHORT).show();
+                appendLog("ERROR", "Invalid URL: " + url);
                 return;
             }
 
@@ -158,18 +189,59 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         rgOptions.setOnCheckedChangeListener((group, checkedId) -> updateFormatSpinner());
 
         btnDownload.setOnClickListener(v -> startDownload());
+
+        btnCopyLog.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("YTDownloader Log", logBuffer.toString());
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
+        });
+
+        btnClearLog.setOnClickListener(v -> {
+            logBuffer.setLength(0);
+            tvLog.setText("");
+            cardLog.setVisibility(View.GONE);
+        });
+    }
+
+    private void appendLog(String level, String message) {
+        String time = logTimeFmt.format(new Date());
+        String line = "[" + time + "] " + level + ": " + message + "\n";
+        logBuffer.append(line);
+        Log.d(TAG, level + ": " + message);
+
+        mainHandler.post(() -> {
+            tvLog.setText(logBuffer.toString());
+            cardLog.setVisibility(View.VISIBLE);
+            // Auto scroll to bottom
+            ScrollView scrollView = (ScrollView) tvLog.getParent();
+            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+        });
+    }
+
+    private void appendException(String context, Throwable e) {
+        StringWriter sw = new StringWriter();
+        e.printStackTrace(new PrintWriter(sw));
+        String stackTrace = sw.toString();
+        // Keep first 500 chars of stack trace
+        if (stackTrace.length() > 500) {
+            stackTrace = stackTrace.substring(0, 500) + "...";
+        }
+        appendLog("ERROR", context + "\n" + e.getClass().getSimpleName() + ": " + e.getMessage() + "\n" + stackTrace);
     }
 
     private void parseVideo(String videoId) {
         pendingVideoId = videoId;
         showLoading(true);
         cardVideoInfo.setVisibility(View.GONE);
+        appendLog("INFO", "Parsing video: " + videoId);
 
         youtubeService.parseVideo(videoId, new YoutubeService.ParseCallback() {
             @Override
             public void onSuccess(VideoInfo videoInfo) {
                 mainHandler.post(() -> {
                     showLoading(false);
+                    appendLog("INFO", "Parse success: " + videoInfo.getTitle());
                     displayVideoInfo(videoInfo);
                 });
             }
@@ -178,6 +250,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             public void onBotDetected() {
                 mainHandler.post(() -> {
                     showLoading(false);
+                    appendLog("WARN", "Bot detection triggered - opening WebView login");
                     Toast.makeText(MainActivity.this, R.string.error_bot_detection, Toast.LENGTH_SHORT).show();
                     launchWebViewLogin();
                 });
@@ -187,6 +260,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             public void onError(String error) {
                 mainHandler.post(() -> {
                     showLoading(false);
+                    appendLog("ERROR", "Parse failed: " + error);
                     Toast.makeText(MainActivity.this, error, Toast.LENGTH_SHORT).show();
                 });
             }
@@ -251,7 +325,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
         if (checkedId == R.id.rbVideoOnly) {
             downloadType = DownloadTask.DownloadType.VIDEO_ONLY;
-            // Get selected format with audio
             List<VideoInfo.FormatOption> formats = currentVideoInfo.getVideoFormats();
             int selectedIndex = spinnerFormat.getSelectedItemPosition();
             int withAudioIndex = 0;
@@ -281,8 +354,11 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 (downloadType == DownloadTask.DownloadType.AUDIO_ONLY && audioItag == null) ||
                 (downloadType == DownloadTask.DownloadType.BEST_QUALITY_MERGE && (videoItag == null || audioItag == null))) {
             Toast.makeText(this, "No suitable format found", Toast.LENGTH_SHORT).show();
+            appendLog("ERROR", "No suitable format found for download type: " + downloadType);
             return;
         }
+
+        appendLog("INFO", "Download started: " + currentVideoInfo.getTitle() + " [" + downloadType + "]");
 
         downloadService.createTask(
                 currentVideoInfo.getVideoId(),
@@ -295,9 +371,8 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
         Toast.makeText(this, "Download started", Toast.LENGTH_SHORT).show();
 
-        // Reset UI
+        // Keep URL, only hide video info card
         cardVideoInfo.setVisibility(View.GONE);
-        etUrl.setText("");
         currentVideoInfo = null;
     }
 
@@ -363,6 +438,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     public void onTaskCompleted(DownloadTask task) {
         mainHandler.post(() -> {
             adapter.updateTask(task);
+            appendLog("INFO", "Download completed: " + task.getTitle());
             Toast.makeText(this, "Download completed: " + task.getTitle(), Toast.LENGTH_SHORT).show();
         });
     }
@@ -371,6 +447,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     public void onTaskFailed(DownloadTask task) {
         mainHandler.post(() -> {
             adapter.updateTask(task);
+            appendLog("ERROR", "Download failed: " + task.getTitle() + "\n" + task.getErrorMessage());
             Toast.makeText(this, "Download failed: " + task.getErrorMessage(), Toast.LENGTH_LONG).show();
         });
     }
