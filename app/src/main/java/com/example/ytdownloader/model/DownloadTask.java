@@ -30,6 +30,7 @@ public class DownloadTask {
     private long totalBytes;
     private long downloadedBytes;
     private String downloadUrl;
+    private String audioDownloadUrl; // audio stream URL for video+audio merge
     private String cachePath; // partial download path in cache dir for resume
 
     public DownloadTask(String id, String videoId, String title, String thumbnailUrl, DownloadType downloadType) {
@@ -74,6 +75,9 @@ public class DownloadTask {
 
     public String getDownloadUrl() { return downloadUrl; }
     public void setDownloadUrl(String downloadUrl) { this.downloadUrl = downloadUrl; }
+
+    public String getAudioDownloadUrl() { return audioDownloadUrl; }
+    public void setAudioDownloadUrl(String audioDownloadUrl) { this.audioDownloadUrl = audioDownloadUrl; }
 
     public String getCachePath() { return cachePath; }
     public void setCachePath(String cachePath) { this.cachePath = cachePath; }

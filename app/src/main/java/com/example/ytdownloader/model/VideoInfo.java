@@ -20,7 +20,8 @@ public class VideoInfo {
         private long contentLength;
         private boolean hasAudio;
         private boolean hasVideo;
-        private String bestAudioFormatId;
+        private String url;             // direct stream download URL
+        private String bestAudioUrl;    // best audio stream URL (for video-only merge)
 
         public FormatOption(String formatId, String quality, String mimeType, String ext, long contentLength, boolean hasAudio, boolean hasVideo) {
             this.formatId = formatId;
@@ -40,8 +41,11 @@ public class VideoInfo {
         public boolean hasAudio() { return hasAudio; }
         public boolean hasVideo() { return hasVideo; }
 
-        public String getBestAudioFormatId() { return bestAudioFormatId; }
-        public void setBestAudioFormatId(String bestAudioFormatId) { this.bestAudioFormatId = bestAudioFormatId; }
+        public String getUrl() { return url; }
+        public void setUrl(String url) { this.url = url; }
+
+        public String getBestAudioUrl() { return bestAudioUrl; }
+        public void setBestAudioUrl(String bestAudioUrl) { this.bestAudioUrl = bestAudioUrl; }
 
         @Override
         public String toString() {

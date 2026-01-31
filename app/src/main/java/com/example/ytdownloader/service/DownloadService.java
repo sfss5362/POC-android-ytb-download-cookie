@@ -6,11 +6,17 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.media.MediaCodec;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+import android.media.MediaMuxer;
 import android.media.MediaScannerConnection;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 
 import androidx.core.app.NotificationCompat;
 
@@ -19,19 +25,20 @@ import com.example.ytdownloader.R;
 import com.example.ytdownloader.manager.AppLogger;
 import com.example.ytdownloader.model.DownloadTask;
 
-import android.os.Handler;
-import android.os.Looper;
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
+import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 public class DownloadService extends Service {
@@ -40,9 +47,15 @@ public class DownloadService extends Service {
     private static final int NOTIFICATION_ID = 1;
 
     private final IBinder binder = new LocalBinder();
-    private YoutubeService youtubeService;
     private final ConcurrentHashMap<String, DownloadTask> tasks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Call> activeCalls = new ConcurrentHashMap<>();
     private final List<DownloadListener> listeners = new ArrayList<>();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private final OkHttpClient httpClient = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(300, TimeUnit.SECONDS)
+            .build();
 
     public interface DownloadListener {
         void onTaskAdded(DownloadTask task);
@@ -60,7 +73,6 @@ public class DownloadService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        youtubeService = new YoutubeService(this);
         createNotificationChannel();
     }
 
@@ -83,10 +95,6 @@ public class DownloadService extends Service {
 
     public void removeListener(DownloadListener listener) {
         listeners.remove(listener);
-    }
-
-    public void refreshYoutubeService() {
-        youtubeService.refreshDownloader();
     }
 
     public boolean hasActiveDownload(String videoId) {
@@ -113,9 +121,11 @@ public class DownloadService extends Service {
         if (task == null) return;
         if (task.getStatus() != DownloadTask.Status.DOWNLOADING
                 && task.getStatus() != DownloadTask.Status.PENDING) return;
-        // Kill yt-dlp process
-        if (task.getProcessId() != null) {
-            youtubeService.cancelDownload(task.getProcessId());
+        // Cancel active HTTP call
+        Call call = activeCalls.get(taskId);
+        if (call != null) {
+            call.cancel();
+            activeCalls.remove(taskId);
         }
         task.setStatus(DownloadTask.Status.PAUSED);
         notifyTaskUpdated(task);
@@ -129,6 +139,8 @@ public class DownloadService extends Service {
                 && task.getStatus() != DownloadTask.Status.FAILED) return;
         task.setStatus(DownloadTask.Status.PENDING);
         task.setErrorMessage(null);
+        task.setDownloadedBytes(0);
+        task.setProgress(0);
         notifyTaskUpdated(task);
         startDownload(task);
         AppLogger.i(TAG, "Resumed: " + task.getTitle());
@@ -137,17 +149,16 @@ public class DownloadService extends Service {
     public void cancelTask(String taskId) {
         DownloadTask task = tasks.get(taskId);
         if (task == null) return;
-        // Kill process if running
-        if (task.getProcessId() != null) {
-            youtubeService.cancelDownload(task.getProcessId());
+        // Cancel active HTTP call
+        Call call = activeCalls.get(taskId);
+        if (call != null) {
+            call.cancel();
+            activeCalls.remove(taskId);
         }
-        // Clean up partial file
+        // Clean up partial files
         if (task.getCachePath() != null) {
             File partial = new File(task.getCachePath());
             if (partial.exists()) partial.delete();
-            // Also try .part file
-            File partFile = new File(task.getCachePath() + ".part");
-            if (partFile.exists()) partFile.delete();
         }
         task.setStatus(DownloadTask.Status.CANCELLED);
         notifyTaskUpdated(task);
@@ -155,10 +166,12 @@ public class DownloadService extends Service {
     }
 
     public String createTask(String videoId, String title, String thumbnailUrl,
-                             DownloadTask.DownloadType type, String formatSpec) {
+                             DownloadTask.DownloadType type, String downloadUrl,
+                             String audioDownloadUrl) {
         String taskId = UUID.randomUUID().toString();
         DownloadTask task = new DownloadTask(taskId, videoId, title, thumbnailUrl, type);
-        task.setFormatSpec(formatSpec);
+        task.setDownloadUrl(downloadUrl);
+        task.setAudioDownloadUrl(audioDownloadUrl);
         tasks.put(taskId, task);
 
         for (DownloadListener listener : listeners) {
@@ -188,12 +201,12 @@ public class DownloadService extends Service {
         if (safeTitle.length() > 50) {
             safeTitle = safeTitle.substring(0, 50);
         }
-        AppLogger.i(TAG, "startDownload: type=" + task.getDownloadType() + ", formatSpec=" + task.getFormatSpec() + ", title=" + safeTitle);
+        AppLogger.i(TAG, "startDownload: type=" + task.getDownloadType() + ", title=" + safeTitle);
 
         switch (task.getDownloadType()) {
             case VIDEO:
             case AUDIO:
-                downloadWithYtDlp(task, safeTitle);
+                downloadStream(task, safeTitle);
                 break;
             case THUMBNAIL:
                 downloadThumbnail(task, safeTitle);
@@ -201,76 +214,203 @@ public class DownloadService extends Service {
         }
     }
 
-    private void downloadWithYtDlp(DownloadTask task, String filename) {
+    private void downloadStream(DownloadTask task, String filename) {
         task.setStatus(DownloadTask.Status.DOWNLOADING);
         notifyTaskUpdated(task);
         updateNotification("Downloading: " + task.getTitle());
 
-        // yt-dlp 无法直接写入 Movies（Scoped Storage 限制），先下载到缓存目录
-        File cacheDir = new File(getCacheDir(), "ytdlp_downloads");
-        if (!cacheDir.exists()) {
-            cacheDir.mkdirs();
+        File cacheDir = new File(getCacheDir(), "downloads");
+        if (!cacheDir.exists()) cacheDir.mkdirs();
+
+        new Thread(() -> {
+            try {
+                String filePath;
+                boolean needsMerge = task.getAudioDownloadUrl() != null
+                        && !task.getAudioDownloadUrl().isEmpty();
+
+                if (needsMerge) {
+                    filePath = downloadAndMerge(task, filename, cacheDir);
+                } else {
+                    String ext = task.getDownloadType() == DownloadTask.DownloadType.AUDIO ? "m4a" : "mp4";
+                    File outputFile = new File(cacheDir, filename + "." + ext);
+                    task.setCachePath(outputFile.getAbsolutePath());
+                    downloadFile(task, task.getDownloadUrl(), outputFile);
+                    filePath = outputFile.getAbsolutePath();
+                }
+
+                if (task.getStatus() == DownloadTask.Status.DOWNLOADING) {
+                    moveToMoviesAndComplete(task, filePath);
+                }
+            } catch (Exception e) {
+                AppLogger.e(TAG, "Download failed: " + e.getMessage(), e);
+                if (task.getStatus() == DownloadTask.Status.DOWNLOADING) {
+                    task.setErrorMessage(e.getMessage());
+                    task.setStatus(DownloadTask.Status.FAILED);
+                    notifyTaskFailed(task);
+                }
+            }
+        }).start();
+    }
+
+    /**
+     * Download a single file via OkHttp with progress tracking.
+     */
+    private void downloadFile(DownloadTask task, String url, File outputFile) throws Exception {
+        Request request = new Request.Builder().url(url).build();
+        Call call = httpClient.newCall(request);
+        activeCalls.put(task.getId(), call);
+
+        try (Response response = call.execute()) {
+            if (!response.isSuccessful()) {
+                throw new Exception("HTTP " + response.code() + " " + response.message());
+            }
+
+            ResponseBody body = response.body();
+            if (body == null) throw new Exception("Empty response body");
+
+            long contentLength = body.contentLength();
+            // Set total if not already set (single-file download)
+            if (task.getTotalBytes() == 0 && contentLength > 0) {
+                task.setTotalBytes(contentLength);
+            }
+
+            InputStream in = body.byteStream();
+            FileOutputStream out = new FileOutputStream(outputFile);
+            byte[] buf = new byte[16384];
+            int len;
+            long lastNotifyTime = 0;
+
+            while ((len = in.read(buf)) > 0) {
+                out.write(buf, 0, len);
+                task.setDownloadedBytes(task.getDownloadedBytes() + len);
+
+                long now = System.currentTimeMillis();
+                if (now - lastNotifyTime > 300) {
+                    if (task.getTotalBytes() > 0) {
+                        task.setProgress((int) (task.getDownloadedBytes() * 100 / task.getTotalBytes()));
+                    }
+                    notifyTaskUpdated(task);
+                    lastNotifyTime = now;
+                }
+            }
+
+            out.close();
+            in.close();
+        } finally {
+            activeCalls.remove(task.getId());
+        }
+    }
+
+    /**
+     * Download video + audio separately, then merge with MediaMuxer.
+     */
+    private String downloadAndMerge(DownloadTask task, String filename, File cacheDir) throws Exception {
+        File videoFile = new File(cacheDir, filename + "_v.mp4");
+        File audioFile = new File(cacheDir, filename + "_a.m4a");
+        File mergedFile = new File(cacheDir, filename + ".mp4");
+        task.setCachePath(mergedFile.getAbsolutePath());
+
+        // Phase 1: Download video stream
+        AppLogger.i(TAG, "Downloading video stream...");
+        downloadFile(task, task.getDownloadUrl(), videoFile);
+
+        if (task.getStatus() != DownloadTask.Status.DOWNLOADING) return mergedFile.getAbsolutePath();
+
+        // Phase 2: Download audio stream
+        AppLogger.i(TAG, "Downloading audio stream...");
+        downloadFile(task, task.getAudioDownloadUrl(), audioFile);
+
+        if (task.getStatus() != DownloadTask.Status.DOWNLOADING) return mergedFile.getAbsolutePath();
+
+        // Phase 3: Mux video + audio
+        AppLogger.i(TAG, "Muxing video + audio...");
+        task.setProgress(95);
+        notifyTaskUpdated(task);
+
+        muxVideoAudio(videoFile.getAbsolutePath(), audioFile.getAbsolutePath(), mergedFile.getAbsolutePath());
+
+        // Clean up temp files
+        videoFile.delete();
+        audioFile.delete();
+
+        AppLogger.i(TAG, "Merge complete: " + mergedFile.getAbsolutePath());
+        return mergedFile.getAbsolutePath();
+    }
+
+    /**
+     * Combine video-only and audio-only streams into a single mp4 using MediaMuxer.
+     */
+    private void muxVideoAudio(String videoPath, String audioPath, String outputPath) throws Exception {
+        MediaMuxer muxer = new MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+
+        // Video track
+        MediaExtractor videoExtractor = new MediaExtractor();
+        videoExtractor.setDataSource(videoPath);
+        int muxerVideoTrack = -1;
+        for (int i = 0; i < videoExtractor.getTrackCount(); i++) {
+            MediaFormat format = videoExtractor.getTrackFormat(i);
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            if (mime != null && mime.startsWith("video/")) {
+                videoExtractor.selectTrack(i);
+                muxerVideoTrack = muxer.addTrack(format);
+                break;
+            }
         }
 
-        String outputPath = new File(cacheDir, filename + ".%(ext)s").getAbsolutePath();
-        task.setCachePath(outputPath);
-
-        // Start file-size progress poller (updates UI every 500ms)
-        Handler pollHandler = new Handler(Looper.getMainLooper());
-        Runnable pollRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (task.getStatus() != DownloadTask.Status.DOWNLOADING) return;
-                // Scan cache dir for matching partial/complete files
-                File[] files = cacheDir.listFiles((dir, name) -> name.startsWith(filename));
-                if (files != null) {
-                    long totalOnDisk = 0;
-                    for (File f : files) totalOnDisk += f.length();
-                    if (totalOnDisk > 0 && totalOnDisk != task.getDownloadedBytes()) {
-                        task.setDownloadedBytes(totalOnDisk);
-                        if (task.getTotalBytes() > 0) {
-                            task.setProgress((int) (totalOnDisk * 100 / task.getTotalBytes()));
-                        }
-                        notifyTaskUpdated(task);
-                    }
-                }
-                pollHandler.postDelayed(this, 500);
+        // Audio track
+        MediaExtractor audioExtractor = new MediaExtractor();
+        audioExtractor.setDataSource(audioPath);
+        int muxerAudioTrack = -1;
+        for (int i = 0; i < audioExtractor.getTrackCount(); i++) {
+            MediaFormat format = audioExtractor.getTrackFormat(i);
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            if (mime != null && mime.startsWith("audio/")) {
+                audioExtractor.selectTrack(i);
+                muxerAudioTrack = muxer.addTrack(format);
+                break;
             }
-        };
-        pollHandler.postDelayed(pollRunnable, 500);
+        }
 
-        String processId = youtubeService.downloadWithYtDlp(
-                task.getVideoId(),
-                task.getFormatSpec(),
-                outputPath,
-                new YoutubeService.DownloadCallback() {
-                    @Override
-                    public void onProgress(int progress, long downloadedBytes, long totalBytes) {
-                        task.setProgress(progress);
-                        task.setDownloadedBytes(downloadedBytes);
-                        task.setTotalBytes(totalBytes);
-                        notifyTaskUpdated(task);
-                    }
+        if (muxerVideoTrack < 0 || muxerAudioTrack < 0) {
+            videoExtractor.release();
+            audioExtractor.release();
+            muxer.release();
+            throw new Exception("Failed to find video/audio tracks for muxing");
+        }
 
-                    @Override
-                    public void onSuccess(String filePath) {
-                        pollHandler.removeCallbacksAndMessages(null);
-                        moveToMoviesAndComplete(task, filePath);
-                    }
+        muxer.start();
 
-                    @Override
-                    public void onError(String error) {
-                        pollHandler.removeCallbacksAndMessages(null);
-                        // Only set FAILED if not already paused/cancelled
-                        if (task.getStatus() == DownloadTask.Status.DOWNLOADING) {
-                            task.setErrorMessage(error);
-                            task.setStatus(DownloadTask.Status.FAILED);
-                            notifyTaskFailed(task);
-                        }
-                    }
-                });
+        ByteBuffer buffer = ByteBuffer.allocate(1024 * 1024);
+        MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
 
-        task.setProcessId(processId);
+        // Write video samples
+        while (true) {
+            int sampleSize = videoExtractor.readSampleData(buffer, 0);
+            if (sampleSize < 0) break;
+            bufferInfo.offset = 0;
+            bufferInfo.size = sampleSize;
+            bufferInfo.presentationTimeUs = videoExtractor.getSampleTime();
+            bufferInfo.flags = videoExtractor.getSampleFlags();
+            muxer.writeSampleData(muxerVideoTrack, buffer, bufferInfo);
+            videoExtractor.advance();
+        }
+
+        // Write audio samples
+        while (true) {
+            int sampleSize = audioExtractor.readSampleData(buffer, 0);
+            if (sampleSize < 0) break;
+            bufferInfo.offset = 0;
+            bufferInfo.size = sampleSize;
+            bufferInfo.presentationTimeUs = audioExtractor.getSampleTime();
+            bufferInfo.flags = audioExtractor.getSampleFlags();
+            muxer.writeSampleData(muxerAudioTrack, buffer, bufferInfo);
+            audioExtractor.advance();
+        }
+
+        muxer.stop();
+        muxer.release();
+        videoExtractor.release();
+        audioExtractor.release();
     }
 
     private void moveToMoviesAndComplete(DownloadTask task, String filePath) {
@@ -339,9 +479,8 @@ public class DownloadService extends Service {
         new Thread(() -> {
             try {
                 String url = task.getDownloadUrl();
-                OkHttpClient client = new OkHttpClient();
                 Request request = new Request.Builder().url(url).build();
-                okhttp3.Response response = client.newCall(request).execute();
+                Response response = httpClient.newCall(request).execute();
                 ResponseBody body = response.body();
                 if (!response.isSuccessful() || body == null) {
                     task.setErrorMessage("HTTP error: " + response.code());
@@ -355,11 +494,8 @@ public class DownloadService extends Service {
                 if (contentType.contains("png")) ext = ".png";
                 else if (contentType.contains("webp")) ext = ".webp";
 
-                // 先写缓存目录，再通过 moveToMoviesAndComplete 移到 Movies
-                File cacheDir = new File(getCacheDir(), "ytdlp_downloads");
-                if (!cacheDir.exists()) {
-                    cacheDir.mkdirs();
-                }
+                File cacheDir = new File(getCacheDir(), "downloads");
+                if (!cacheDir.exists()) cacheDir.mkdirs();
                 File cacheFile = new File(cacheDir, safeTitle + "_cover" + ext);
 
                 InputStream in = body.byteStream();

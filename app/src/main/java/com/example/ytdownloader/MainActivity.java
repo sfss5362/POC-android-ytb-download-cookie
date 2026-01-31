@@ -55,9 +55,6 @@ import com.example.ytdownloader.service.DownloadService;
 import com.example.ytdownloader.service.YoutubeService;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
-import com.yausername.youtubedl_android.YoutubeDL;
-import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel;
-import com.yausername.youtubedl_android.YoutubeDL.UpdateStatus;
 
 import java.io.File;
 import java.util.List;
@@ -251,20 +248,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         downloadContent.setVisibility(position == 0 ? View.VISIBLE : View.GONE);
         loginContent.setVisibility(position == 1 ? View.VISIBLE : View.GONE);
         settingsContent.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
-        if (position == 2) {
-            loadYtDlpVersion();
-        }
-    }
-
-    private void loadYtDlpVersion() {
-        new Thread(() -> {
-            try {
-                String version = YoutubeDL.getInstance().version(this);
-                mainHandler.post(() -> tvYtDlpVersion.setText(version));
-            } catch (Exception e) {
-                mainHandler.post(() -> tvYtDlpVersion.setText("Unknown"));
-            }
-        }).start();
     }
 
     private void initSettings() {
@@ -377,11 +360,9 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         btnGoToLogin.setOnClickListener(v -> bottomNav.setSelectedItemId(R.id.nav_login));
         updateCookieStatus();
 
-        // yt-dlp update button
-        btnUpdateYtDlp.setOnClickListener(v -> updateYtDlp());
-
-        // yt-dlp version (load in background)
-        loadYtDlpVersion();
+        // Parser info (java-youtube-downloader, no update needed)
+        tvYtDlpVersion.setText("java-youtube-downloader v3.3.1");
+        btnUpdateYtDlp.setVisibility(View.GONE);
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -861,11 +842,8 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 updateLoginStatusBanner();
                 updateCookieStatus();
 
-                // Refresh services
+                // Refresh parser with new cookies
                 youtubeService.refreshDownloader();
-                if (downloadService != null) {
-                    downloadService.refreshYoutubeService();
-                }
 
                 // Navigate to YouTube homepage
                 webViewLogin.loadUrl("https://m.youtube.com");
@@ -922,35 +900,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 mainHandler.postDelayed(autoParseRunnable, 300);
             }
         });
-    }
-
-    private void updateYtDlp() {
-        btnUpdateYtDlp.setEnabled(false);
-        Toast.makeText(this, "Updating yt-dlp...", Toast.LENGTH_SHORT).show();
-        appendLog("INFO", "Updating yt-dlp...");
-
-        new Thread(() -> {
-            try {
-                UpdateStatus status = YoutubeDL.getInstance().updateYoutubeDL(this, UpdateChannel.STABLE.INSTANCE);
-                mainHandler.post(() -> {
-                    btnUpdateYtDlp.setEnabled(true);
-                    if (status == UpdateStatus.DONE) {
-                        Toast.makeText(this, "yt-dlp updated successfully", Toast.LENGTH_SHORT).show();
-                        appendLog("INFO", "yt-dlp updated successfully");
-                        loadYtDlpVersion();
-                    } else {
-                        Toast.makeText(this, "yt-dlp is already up to date", Toast.LENGTH_SHORT).show();
-                        appendLog("INFO", "yt-dlp already up to date");
-                    }
-                });
-            } catch (Exception e) {
-                mainHandler.post(() -> {
-                    btnUpdateYtDlp.setEnabled(true);
-                    Toast.makeText(this, "Update failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                    appendLog("ERROR", "yt-dlp update failed: " + e.getMessage());
-                });
-            }
-        }).start();
     }
 
     private void appendLog(String level, String message) {
@@ -1138,29 +1087,30 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private void startFormatDownload(VideoInfo videoInfo, VideoInfo.FormatOption format, boolean isVideo) {
         if (!serviceBound) return;
 
-        String formatSpec;
         DownloadTask.DownloadType type;
+        String downloadUrl = format.getUrl();
+        String audioUrl = null;
+
         if (isVideo) {
             type = DownloadTask.DownloadType.VIDEO;
-            if (!format.hasAudio()) {
-                // Pure video -> auto-merge with best audio
-                formatSpec = format.getFormatId() + "+bestaudio";
-            } else {
-                formatSpec = format.getFormatId();
+            if (!format.hasAudio() && format.getBestAudioUrl() != null) {
+                // Video-only -> download video + audio separately, then merge
+                audioUrl = format.getBestAudioUrl();
             }
         } else {
             type = DownloadTask.DownloadType.AUDIO;
-            formatSpec = format.getFormatId();
         }
 
-        appendLog("INFO", "Download started: " + videoInfo.getTitle() + " [" + type + " " + format.getQuality() + " f=" + formatSpec + "]");
+        appendLog("INFO", "Download started: " + videoInfo.getTitle() + " [" + type + " " + format.getQuality()
+                + " itag=" + format.getFormatId() + (audioUrl != null ? " +audio" : "") + "]");
 
         downloadService.createTask(
                 videoInfo.getVideoId(),
                 videoInfo.getTitle(),
                 videoInfo.getThumbnailUrl(),
                 type,
-                formatSpec
+                downloadUrl,
+                audioUrl
         );
 
         Toast.makeText(this, "Download started: " + format.getQuality(), Toast.LENGTH_SHORT).show();
