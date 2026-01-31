@@ -31,10 +31,17 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
         void onTaskDeleted(String taskId, boolean deleteFile);
     }
 
+    public interface OnTaskActionListener {
+        void onPause(String taskId);
+        void onResume(String taskId);
+        void onCancel(String taskId);
+    }
+
     private final Context context;
     private final List<DownloadTask> tasks = new ArrayList<>();
     private Runnable onTaskRemovedListener;
     private OnTaskDeleteListener onTaskDeleteListener;
+    private OnTaskActionListener onTaskActionListener;
 
     public DownloadListAdapter(Context context) {
         this.context = context;
@@ -46,6 +53,10 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
 
     public void setOnTaskDeleteListener(OnTaskDeleteListener listener) {
         this.onTaskDeleteListener = listener;
+    }
+
+    public void setOnTaskActionListener(OnTaskActionListener listener) {
+        this.onTaskActionListener = listener;
     }
 
     public void addTask(DownloadTask task) {
@@ -91,7 +102,7 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
                     .into(holder.ivThumb);
         }
 
-        // Update progress bar, folder button, delete button
+        // Update progress bar, action buttons based on status
         switch (task.getStatus()) {
             case COMPLETED:
                 holder.progressBar.setVisibility(View.GONE);
@@ -109,12 +120,49 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
                 holder.btnDelete.setOnClickListener(v -> showDeleteDialog(task, holder.getAdapterPosition()));
                 break;
             case FAILED:
+                holder.progressBar.setVisibility(View.GONE);
+                // Resume button for failed tasks
+                holder.btnAction.setVisibility(View.VISIBLE);
+                holder.btnAction.setImageResource(android.R.drawable.ic_media_play);
+                holder.btnAction.setOnClickListener(v -> {
+                    if (onTaskActionListener != null) onTaskActionListener.onResume(task.getId());
+                });
+                holder.btnFolder.setVisibility(View.GONE);
+                holder.btnDelete.setVisibility(View.VISIBLE);
+                holder.btnDelete.setOnClickListener(v -> {
+                    if (onTaskActionListener != null) onTaskActionListener.onCancel(task.getId());
+                    deleteTask(task, holder.getAdapterPosition(), false);
+                });
+                break;
             case CANCELLED:
                 holder.progressBar.setVisibility(View.GONE);
                 holder.btnAction.setVisibility(View.GONE);
                 holder.btnFolder.setVisibility(View.GONE);
                 holder.btnDelete.setVisibility(View.VISIBLE);
                 holder.btnDelete.setOnClickListener(v -> deleteTask(task, holder.getAdapterPosition(), false));
+                break;
+            case PAUSED:
+                holder.progressBar.setVisibility(View.VISIBLE);
+                if (task.getProgress() > 0) {
+                    holder.progressBar.setIndeterminate(false);
+                    holder.progressBar.setProgress(task.getProgress());
+                } else {
+                    holder.progressBar.setIndeterminate(false);
+                    holder.progressBar.setProgress(0);
+                }
+                // Resume button
+                holder.btnAction.setVisibility(View.VISIBLE);
+                holder.btnAction.setImageResource(android.R.drawable.ic_media_play);
+                holder.btnAction.setOnClickListener(v -> {
+                    if (onTaskActionListener != null) onTaskActionListener.onResume(task.getId());
+                });
+                holder.btnFolder.setVisibility(View.GONE);
+                // Delete button
+                holder.btnDelete.setVisibility(View.VISIBLE);
+                holder.btnDelete.setOnClickListener(v -> {
+                    if (onTaskActionListener != null) onTaskActionListener.onCancel(task.getId());
+                    deleteTask(task, holder.getAdapterPosition(), false);
+                });
                 break;
             default:
                 // PENDING, DOWNLOADING
@@ -125,10 +173,19 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
                 } else {
                     holder.progressBar.setIndeterminate(true);
                 }
+                // Pause button
                 holder.btnAction.setVisibility(View.VISIBLE);
                 holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
+                holder.btnAction.setOnClickListener(v -> {
+                    if (onTaskActionListener != null) onTaskActionListener.onPause(task.getId());
+                });
                 holder.btnFolder.setVisibility(View.GONE);
-                holder.btnDelete.setVisibility(View.GONE);
+                // Delete/Cancel button
+                holder.btnDelete.setVisibility(View.VISIBLE);
+                holder.btnDelete.setOnClickListener(v -> {
+                    if (onTaskActionListener != null) onTaskActionListener.onCancel(task.getId());
+                    deleteTask(task, holder.getAdapterPosition(), false);
+                });
                 break;
         }
 

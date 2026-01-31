@@ -4,6 +4,7 @@ public class DownloadTask {
     public enum Status {
         PENDING,
         DOWNLOADING,
+        PAUSED,
         COMPLETED,
         FAILED,
         CANCELLED
@@ -29,6 +30,7 @@ public class DownloadTask {
     private long totalBytes;
     private long downloadedBytes;
     private String downloadUrl;
+    private String cachePath; // partial download path in cache dir for resume
 
     public DownloadTask(String id, String videoId, String title, String thumbnailUrl, DownloadType downloadType) {
         this.id = id;
@@ -73,6 +75,9 @@ public class DownloadTask {
     public String getDownloadUrl() { return downloadUrl; }
     public void setDownloadUrl(String downloadUrl) { this.downloadUrl = downloadUrl; }
 
+    public String getCachePath() { return cachePath; }
+    public void setCachePath(String cachePath) { this.cachePath = cachePath; }
+
     public String getStatusText() {
         switch (status) {
             case PENDING: return "Preparing...";
@@ -84,6 +89,14 @@ public class DownloadTask {
                     return "Downloading... " + progress + "%";
                 }
                 return "Preparing...";
+            case PAUSED:
+                if (totalBytes > 0 && downloadedBytes > 0) {
+                    return "Paused · " + formatBytes(downloadedBytes) + " / " + formatBytes(totalBytes);
+                }
+                if (progress > 0) {
+                    return "Paused · " + progress + "%";
+                }
+                return "Paused";
             case COMPLETED: return "Completed";
             case FAILED: return "Failed: " + (errorMessage != null ? errorMessage : "Unknown error");
             case CANCELLED: return "Cancelled";

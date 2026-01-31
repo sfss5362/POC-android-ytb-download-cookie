@@ -334,6 +334,7 @@ public class YoutubeService {
                 request.addOption("--merge-output-format", "mp4");
                 request.addOption("--no-playlist");
                 request.addOption("--no-check-certificates");
+                request.addOption("-c"); // continue/resume partial downloads
 
                 String cookieFile = getCookieFilePath();
                 if (cookieFile != null) {

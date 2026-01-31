@@ -212,6 +212,20 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 downloadService.removeTask(taskId);
             }
         });
+        adapter.setOnTaskActionListener(new DownloadListAdapter.OnTaskActionListener() {
+            @Override
+            public void onPause(String taskId) {
+                if (serviceBound) downloadService.pauseTask(taskId);
+            }
+            @Override
+            public void onResume(String taskId) {
+                if (serviceBound) downloadService.resumeTask(taskId);
+            }
+            @Override
+            public void onCancel(String taskId) {
+                if (serviceBound) downloadService.cancelTask(taskId);
+            }
+        });
         rvDownloads.setLayoutManager(new LinearLayoutManager(this));
         rvDownloads.setAdapter(adapter);
     }
@@ -237,6 +251,20 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         downloadContent.setVisibility(position == 0 ? View.VISIBLE : View.GONE);
         loginContent.setVisibility(position == 1 ? View.VISIBLE : View.GONE);
         settingsContent.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
+        if (position == 2) {
+            loadYtDlpVersion();
+        }
+    }
+
+    private void loadYtDlpVersion() {
+        new Thread(() -> {
+            try {
+                String version = YoutubeDL.getInstance().version(this);
+                mainHandler.post(() -> tvYtDlpVersion.setText(version));
+            } catch (Exception e) {
+                mainHandler.post(() -> tvYtDlpVersion.setText("Unknown"));
+            }
+        }).start();
     }
 
     private void initSettings() {
@@ -353,14 +381,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         btnUpdateYtDlp.setOnClickListener(v -> updateYtDlp());
 
         // yt-dlp version (load in background)
-        new Thread(() -> {
-            try {
-                String version = YoutubeDL.getInstance().version(this);
-                mainHandler.post(() -> tvYtDlpVersion.setText(version));
-            } catch (Exception e) {
-                mainHandler.post(() -> tvYtDlpVersion.setText("Unknown"));
-            }
-        }).start();
+        loadYtDlpVersion();
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -396,6 +417,14 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 super.onPageFinished(view, url);
                 etWebViewUrl.setText(url);
                 checkLoginStatus(url);
+                injectDownloadButtons(view);
+            }
+
+            @Override
+            public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+                super.doUpdateVisitedHistory(view, url, isReload);
+                // SPA navigation (YouTube uses History API): update address bar + re-inject buttons
+                etWebViewUrl.setText(url);
                 injectDownloadButtons(view);
             }
 
@@ -459,23 +488,79 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 "style = document.createElement('style');" +
                 "style.id = 'ytdl-style';" +
                 "style.textContent = " +
+                    // Thumbnail overlay button (for list views)
                     "'.ytdl-btn {" +
-                        "position:absolute !important; bottom:8px !important; right:8px !important; z-index:99999 !important;" +
+                        "position:absolute !important; bottom:12px !important; left:50% !important; right:auto !important;" +
+                        "z-index:2147483647 !important;" +
                         "width:36px !important; height:36px !important; border-radius:50% !important;" +
-                        "background:rgba(232,101,43,0.92) !important; border:2px solid rgba(255,255,255,0.8) !important;" +
+                        "background:linear-gradient(135deg,rgba(245,124,56,0.95),rgba(220,80,30,0.95)) !important;" +
+                        "border:2px solid rgba(255,255,255,0.85) !important;" +
                         "display:flex !important; align-items:center !important; justify-content:center !important;" +
-                        "box-shadow:0 2px 8px rgba(0,0,0,0.4) !important;" +
-                        "transition:transform 0.2s,background 0.2s !important;" +
-                        "animation:ytdl-pulse 2s ease-in-out infinite !important;" +
+                        "cursor:pointer !important;" +
+                        "box-shadow:0 2px 8px rgba(0,0,0,0.3),0 0 0 0 rgba(232,101,43,0.4) !important;" +
                         "padding:0 !important; margin:0 !important; pointer-events:auto !important;" +
                         "opacity:1 !important; visibility:visible !important;" +
+                        "-webkit-tap-highlight-color:transparent !important;" +
+                        "animation:ytdl-enter 0.4s cubic-bezier(0.175,0.885,0.32,1.275) both, ytdl-ring 3s ease-out 1s infinite !important;" +
                     "}" +
-                    ".ytdl-btn:active { transform:scale(0.85) !important; background:rgba(196,71,26,0.95) !important; }" +
-                    "@keyframes ytdl-pulse {" +
-                        "0%,100% { box-shadow:0 2px 8px rgba(0,0,0,0.4); }" +
-                        "50% { box-shadow:0 2px 16px rgba(232,101,43,0.7); }" +
+                    // Fixed floating button (for watch/shorts pages)
+                    ".ytdl-btn-fixed {" +
+                        "position:fixed !important;" +
+                        "z-index:2147483647 !important;" +
+                        "width:44px !important; height:44px !important; border-radius:50% !important;" +
+                        "background:linear-gradient(135deg,rgba(245,124,56,0.97),rgba(220,80,30,0.97)) !important;" +
+                        "border:2px solid rgba(255,255,255,0.9) !important;" +
+                        "display:flex !important; align-items:center !important; justify-content:center !important;" +
+                        "cursor:pointer !important;" +
+                        "box-shadow:0 3px 12px rgba(0,0,0,0.4),0 0 0 0 rgba(232,101,43,0.4) !important;" +
+                        "padding:0 !important; margin:0 !important; pointer-events:auto !important;" +
+                        "opacity:1 !important; visibility:visible !important;" +
+                        "-webkit-tap-highlight-color:transparent !important;" +
+                        "animation:ytdl-enter-abs 0.4s cubic-bezier(0.175,0.885,0.32,1.275) both, ytdl-ring 3s ease-out 1s infinite !important;" +
                     "}" +
-                    ".ytdl-btn svg { width:20px !important; height:20px !important; pointer-events:none !important; }';" +
+
+                    // Hover / Active
+                    ".ytdl-btn:hover { cursor:grab !important; transform:translateX(-50%) scale(1.15) !important; box-shadow:0 4px 20px rgba(232,101,43,0.6) !important; }" +
+                    ".ytdl-btn:active { cursor:grabbing !important; transform:translateX(-50%) scale(0.88) !important; background:linear-gradient(135deg,rgba(196,71,26,0.95),rgba(170,55,15,0.95)) !important; }" +
+                    ".ytdl-btn-fixed:hover { cursor:grab !important; transform:scale(1.15) !important; box-shadow:0 4px 20px rgba(232,101,43,0.6) !important; }" +
+                    ".ytdl-btn-fixed:active { cursor:grabbing !important; transform:scale(0.88) !important; background:linear-gradient(135deg,rgba(196,71,26,0.95),rgba(170,55,15,0.95)) !important; }" +
+                    // Player button: right-aligned in player container
+                    ".ytdl-btn-player { left:auto !important; right:10px !important; bottom:10px !important; transform:none !important; animation:ytdl-enter-abs 0.4s cubic-bezier(0.175,0.885,0.32,1.275) both, ytdl-ring 3s ease-out 1s infinite !important; }" +
+                    ".ytdl-btn-player:hover { cursor:grab !important; transform:scale(1.15) !important; box-shadow:0 4px 20px rgba(232,101,43,0.6) !important; }" +
+                    ".ytdl-btn-player:active { cursor:grabbing !important; transform:scale(0.88) !important; background:linear-gradient(135deg,rgba(196,71,26,0.95),rgba(170,55,15,0.95)) !important; }" +
+
+                    // Entry: scale from 0 with bounce (centered buttons with translateX)
+                    "@keyframes ytdl-enter {" +
+                        "0% { opacity:0; transform:translateX(-50%) scale(0); }" +
+                        "100% { opacity:1; transform:translateX(-50%) scale(1); }" +
+                    "}" +
+                    // Entry without translateX (for fixed/player buttons)
+                    "@keyframes ytdl-enter-abs {" +
+                        "0% { opacity:0; transform:scale(0); }" +
+                        "100% { opacity:1; transform:scale(1); }" +
+                    "}" +
+                    // Expanding ring pulse on button
+                    "@keyframes ytdl-ring {" +
+                        "0% { box-shadow:0 2px 8px rgba(0,0,0,0.3),0 0 0 0 rgba(232,101,43,0.5); }" +
+                        "40% { box-shadow:0 2px 8px rgba(0,0,0,0.3),0 0 0 10px rgba(232,101,43,0); }" +
+                        "100% { box-shadow:0 2px 8px rgba(0,0,0,0.3),0 0 0 0 rgba(232,101,43,0); }" +
+                    "}" +
+
+                    // SVG arrow: bouncy download motion + scale pulse
+                    ".ytdl-btn svg,.ytdl-btn-fixed svg {" +
+                        "width:20px !important; height:20px !important; pointer-events:none !important;" +
+                        "animation:ytdl-arrow 2s cubic-bezier(0.4,0,0.2,1) infinite !important;" +
+                        "filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3)) !important;" +
+                    "}" +
+                    ".ytdl-btn-fixed svg { width:24px !important; height:24px !important; }" +
+                    "@keyframes ytdl-arrow {" +
+                        "0%,100% { transform:translateY(0) scale(1); opacity:1; }" +
+                        "12% { transform:translateY(5px) scale(0.85); opacity:0.65; }" +
+                        "28% { transform:translateY(-3px) scale(1.15); opacity:1; }" +
+                        "42% { transform:translateY(2px) scale(0.93); opacity:0.8; }" +
+                        "56% { transform:translateY(-1px) scale(1.05); opacity:1; }" +
+                        "70%,100% { transform:translateY(0) scale(1); opacity:1; }" +
+                    "}';" +
                 "document.head.appendChild(style);" +
             "}" +
 
@@ -491,14 +576,23 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 "return svg;" +
             "}" +
 
-            // Add button to a container
-            "function addBtn(container, videoUrl) {" +
+            // Add button to a container. posTop=true puts it at top-right (for shorts)
+            "function addBtn(container, videoUrl, posTop) {" +
                 "if (!container || container.querySelector('.ytdl-btn')) return;" +
                 "var cs = getComputedStyle(container);" +
                 "if (cs.position === 'static' || cs.position === '') container.style.position = 'relative';" +
-                "container.style.overflow = 'visible';" +
+                // Ensure no ancestor clips the button
+                "var anc = container;" +
+                "for (var d=0; d<5 && anc; d++) {" +
+                    "anc.style.overflow = 'visible';" +
+                    "anc = anc.parentElement;" +
+                "}" +
                 "var btn = document.createElement('div');" +
                 "btn.className = 'ytdl-btn';" +
+                "if (posTop) {" +
+                    "btn.style.bottom = 'auto';" +
+                    "btn.style.top = '55%';" +
+                "}" +
                 "btn.appendChild(makeSvg());" +
                 "btn.addEventListener('click', function(e) {" +
                     "e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();" +
@@ -509,6 +603,26 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                     "YTDownloader.downloadVideo(videoUrl);" +
                 "}, true);" +
                 "container.appendChild(btn);" +
+            "}" +
+
+            // Add a fixed-position button to document body (for watch/shorts pages)
+            "function addFixedBtn(videoUrl, bottom, right, left) {" +
+                "if (document.querySelector('.ytdl-btn-fixed')) return;" +
+                "var btn = document.createElement('div');" +
+                "btn.className = 'ytdl-btn-fixed';" +
+                "btn.style.bottom = bottom;" +
+                "if (right) btn.style.right = right;" +
+                "if (left) btn.style.left = left;" +
+                "btn.appendChild(makeSvg());" +
+                "btn.addEventListener('click', function(e) {" +
+                    "e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();" +
+                    "YTDownloader.downloadVideo(videoUrl);" +
+                "}, true);" +
+                "btn.addEventListener('touchend', function(e) {" +
+                    "e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();" +
+                    "YTDownloader.downloadVideo(videoUrl);" +
+                "}, true);" +
+                "document.body.appendChild(btn);" +
             "}" +
 
             // Extract video ID -> full URL
@@ -552,6 +666,17 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             // Main scan
             "function scan() {" +
                 "var count = 0;" +
+                // Shorts element tag names (button goes to top-right)
+                "var shortsTags = ['ytm-shorts-lockup-view-model-v2','ytm-shorts-lockup-view-model','ytm-reel-item-renderer'];" +
+                "function isShorts(el) {" +
+                    "var tag = el.tagName ? el.tagName.toLowerCase() : '';" +
+                    "for (var s=0; s<shortsTags.length; s++) { if (tag === shortsTags[s]) return true; }" +
+                    // Also check if the link is a /shorts/ URL
+                    "var a = el.querySelector('a[href*=\"/shorts/\"]');" +
+                    "if (a) return true;" +
+                    "return false;" +
+                "}" +
+
                 // Strategy 1: YouTube mobile custom elements
                 "var sel = 'ytm-rich-item-renderer,ytm-video-with-context-renderer," +
                     "ytm-compact-video-renderer,ytm-media-item," +
@@ -561,7 +686,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                     "var url = extractUrl(el);" +
                     "if (!url) return;" +
                     "var thumb = findThumb(el);" +
-                    "if (thumb) { addBtn(thumb, url); count++; }" +
+                    "if (thumb) { addBtn(thumb, url, isShorts(el)); count++; }" +
                 "});" +
                 // Strategy 2: <a> with watch/shorts containing <img>
                 "document.querySelectorAll('a[href*=\"/watch?v=\"], a[href*=\"/shorts/\"]').forEach(function(a) {" +
@@ -569,7 +694,8 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                     "if (!img) return;" +
                     "var url = extractUrl(a);" +
                     "if (!url) return;" +
-                    "addBtn(img.parentElement, url); count++;" +
+                    "var isSh = a.href && a.href.indexOf('/shorts/') !== -1;" +
+                    "addBtn(img.parentElement, url, isSh); count++;" +
                 "});" +
                 // Strategy 3: ytimg images near video links
                 "document.querySelectorAll('img').forEach(function(img) {" +
@@ -581,8 +707,63 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                     "var url = extractUrl(container);" +
                     "if (!url && container.parentElement) url = extractUrl(container.parentElement);" +
                     "if (!url && container.parentElement && container.parentElement.parentElement) url = extractUrl(container.parentElement.parentElement);" +
-                    "if (url) { addBtn(container, url); count++; }" +
+                    "if (url) { addBtn(container, url, false); count++; }" +
                 "});" +
+
+                // Strategy 4: Watch page — button on the player container's bottom-right
+                "var loc = window.location.href;" +
+                "var watchMatch = loc.match(/(?:watch\\?v=|watch%3Fv%3D)([a-zA-Z0-9_-]{11})/);" +
+                "if (watchMatch) {" +
+                    "var wUrl = 'https://www.youtube.com/watch?v=' + watchMatch[1];" +
+                    // Find the video player container
+                    "var playerSels = [" +
+                        "'.player-container', '.html5-video-player', 'ytm-player-microformat-renderer'," +
+                        "'ytm-media-control-container', '.ytm-autonav-bar', '#player', '.player-controls-content'," +
+                        "'video'" +
+                    "];" +
+                    "var playerEl = null;" +
+                    "for (var pi=0; pi<playerSels.length; pi++) {" +
+                        "playerEl = document.querySelector(playerSels[pi]);" +
+                        "if (playerEl) break;" +
+                    "}" +
+                    // Use the video element's parent as container
+                    "if (playerEl && playerEl.tagName === 'VIDEO') playerEl = playerEl.parentElement;" +
+                    "if (playerEl && !playerEl.querySelector('.ytdl-btn-player')) {" +
+                        "var pcs = getComputedStyle(playerEl);" +
+                        "if (pcs.position === 'static' || pcs.position === '') playerEl.style.position = 'relative';" +
+                        "var pbtn = document.createElement('div');" +
+                        "pbtn.className = 'ytdl-btn ytdl-btn-player';" +
+                        "pbtn.appendChild(makeSvg());" +
+                        "pbtn.addEventListener('click', function(e) {" +
+                            "e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();" +
+                            "YTDownloader.downloadVideo(wUrl);" +
+                        "}, true);" +
+                        "pbtn.addEventListener('touchend', function(e) {" +
+                            "e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();" +
+                            "YTDownloader.downloadVideo(wUrl);" +
+                        "}, true);" +
+                        "playerEl.appendChild(pbtn);" +
+                        "count++;" +
+                    "}" +
+                "}" +
+
+                // Strategy 5: Shorts page — fixed button, left side to avoid YouTube controls on right
+                "var shortsMatch = loc.match(/shorts\\/([a-zA-Z0-9_-]{11})/);" +
+                "if (shortsMatch && !document.querySelector('.ytdl-btn-fixed')) {" +
+                    "var sUrl = 'https://www.youtube.com/watch?v=' + shortsMatch[1];" +
+                    "addFixedBtn(sUrl, '160px', null, '16px');" +
+                    "count++;" +
+                "}" +
+
+                // Remove stale buttons when navigating away
+                "if (!watchMatch) {" +
+                    "var sp = document.querySelector('.ytdl-btn-player');" +
+                    "if (sp) sp.remove();" +
+                "}" +
+                "if (!shortsMatch) {" +
+                    "var sf = document.querySelector('.ytdl-btn-fixed');" +
+                    "if (sf) sf.remove();" +
+                "}" +
             "}" +
 
             // Initial scan after DOM settles
@@ -756,13 +937,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                     if (status == UpdateStatus.DONE) {
                         Toast.makeText(this, "yt-dlp updated successfully", Toast.LENGTH_SHORT).show();
                         appendLog("INFO", "yt-dlp updated successfully");
-                        // Refresh version display
-                        new Thread(() -> {
-                            try {
-                                String version = YoutubeDL.getInstance().version(this);
-                                mainHandler.post(() -> tvYtDlpVersion.setText(version));
-                            } catch (Exception ignored) {}
-                        }).start();
+                        loadYtDlpVersion();
                     } else {
                         Toast.makeText(this, "yt-dlp is already up to date", Toast.LENGTH_SHORT).show();
                         appendLog("INFO", "yt-dlp already up to date");

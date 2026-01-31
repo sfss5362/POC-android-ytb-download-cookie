@@ -19,6 +19,9 @@ import com.example.ytdownloader.R;
 import com.example.ytdownloader.manager.AppLogger;
 import com.example.ytdownloader.model.DownloadTask;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -105,6 +108,52 @@ public class DownloadService extends Service {
         tasks.remove(taskId);
     }
 
+    public void pauseTask(String taskId) {
+        DownloadTask task = tasks.get(taskId);
+        if (task == null) return;
+        if (task.getStatus() != DownloadTask.Status.DOWNLOADING
+                && task.getStatus() != DownloadTask.Status.PENDING) return;
+        // Kill yt-dlp process
+        if (task.getProcessId() != null) {
+            youtubeService.cancelDownload(task.getProcessId());
+        }
+        task.setStatus(DownloadTask.Status.PAUSED);
+        notifyTaskUpdated(task);
+        AppLogger.i(TAG, "Paused: " + task.getTitle());
+    }
+
+    public void resumeTask(String taskId) {
+        DownloadTask task = tasks.get(taskId);
+        if (task == null) return;
+        if (task.getStatus() != DownloadTask.Status.PAUSED
+                && task.getStatus() != DownloadTask.Status.FAILED) return;
+        task.setStatus(DownloadTask.Status.PENDING);
+        task.setErrorMessage(null);
+        notifyTaskUpdated(task);
+        startDownload(task);
+        AppLogger.i(TAG, "Resumed: " + task.getTitle());
+    }
+
+    public void cancelTask(String taskId) {
+        DownloadTask task = tasks.get(taskId);
+        if (task == null) return;
+        // Kill process if running
+        if (task.getProcessId() != null) {
+            youtubeService.cancelDownload(task.getProcessId());
+        }
+        // Clean up partial file
+        if (task.getCachePath() != null) {
+            File partial = new File(task.getCachePath());
+            if (partial.exists()) partial.delete();
+            // Also try .part file
+            File partFile = new File(task.getCachePath() + ".part");
+            if (partFile.exists()) partFile.delete();
+        }
+        task.setStatus(DownloadTask.Status.CANCELLED);
+        notifyTaskUpdated(task);
+        AppLogger.i(TAG, "Cancelled: " + task.getTitle());
+    }
+
     public String createTask(String videoId, String title, String thumbnailUrl,
                              DownloadTask.DownloadType type, String formatSpec) {
         String taskId = UUID.randomUUID().toString();
@@ -164,6 +213,31 @@ public class DownloadService extends Service {
         }
 
         String outputPath = new File(cacheDir, filename + ".%(ext)s").getAbsolutePath();
+        task.setCachePath(outputPath);
+
+        // Start file-size progress poller (updates UI every 500ms)
+        Handler pollHandler = new Handler(Looper.getMainLooper());
+        Runnable pollRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (task.getStatus() != DownloadTask.Status.DOWNLOADING) return;
+                // Scan cache dir for matching partial/complete files
+                File[] files = cacheDir.listFiles((dir, name) -> name.startsWith(filename));
+                if (files != null) {
+                    long totalOnDisk = 0;
+                    for (File f : files) totalOnDisk += f.length();
+                    if (totalOnDisk > 0 && totalOnDisk != task.getDownloadedBytes()) {
+                        task.setDownloadedBytes(totalOnDisk);
+                        if (task.getTotalBytes() > 0) {
+                            task.setProgress((int) (totalOnDisk * 100 / task.getTotalBytes()));
+                        }
+                        notifyTaskUpdated(task);
+                    }
+                }
+                pollHandler.postDelayed(this, 500);
+            }
+        };
+        pollHandler.postDelayed(pollRunnable, 500);
 
         String processId = youtubeService.downloadWithYtDlp(
                 task.getVideoId(),
@@ -180,14 +254,19 @@ public class DownloadService extends Service {
 
                     @Override
                     public void onSuccess(String filePath) {
+                        pollHandler.removeCallbacksAndMessages(null);
                         moveToMoviesAndComplete(task, filePath);
                     }
 
                     @Override
                     public void onError(String error) {
-                        task.setErrorMessage(error);
-                        task.setStatus(DownloadTask.Status.FAILED);
-                        notifyTaskFailed(task);
+                        pollHandler.removeCallbacksAndMessages(null);
+                        // Only set FAILED if not already paused/cancelled
+                        if (task.getStatus() == DownloadTask.Status.DOWNLOADING) {
+                            task.setErrorMessage(error);
+                            task.setStatus(DownloadTask.Status.FAILED);
+                            notifyTaskFailed(task);
+                        }
                     }
                 });
 
