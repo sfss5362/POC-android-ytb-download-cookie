@@ -119,8 +119,12 @@ public class DownloadListAdapter extends RecyclerView.Adapter<DownloadListAdapte
             default:
                 // PENDING, DOWNLOADING
                 holder.progressBar.setVisibility(View.VISIBLE);
-                holder.progressBar.setIndeterminate(false);
-                holder.progressBar.setProgress(task.getProgress());
+                if (task.getProgress() > 0) {
+                    holder.progressBar.setIndeterminate(false);
+                    holder.progressBar.setProgress(task.getProgress());
+                } else {
+                    holder.progressBar.setIndeterminate(true);
+                }
                 holder.btnAction.setVisibility(View.VISIBLE);
                 holder.btnAction.setImageResource(android.R.drawable.ic_media_pause);
                 holder.btnFolder.setVisibility(View.GONE);

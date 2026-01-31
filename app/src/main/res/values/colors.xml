@@ -1,15 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#FF0000</color>
-    <color name="primary_dark">#CC0000</color>
-    <color name="accent">#FF4444</color>
-    <color name="background">#FFFFFF</color>
-    <color name="surface">#F5F5F5</color>
-    <color name="on_surface">#212121</color>
-    <color name="on_surface_secondary">#757575</color>
-    <color name="progress_background">#E0E0E0</color>
-    <color name="success">#4CAF50</color>
-    <color name="error">#F44336</color>
-    <color name="card_background">#FFFFFF</color>
-    <color name="divider">#E0E0E0</color>
+    <!-- Glassmorphism Light Blue Theme -->
+    <color name="primary">#2979FF</color>
+    <color name="primary_dark">#1565C0</color>
+    <color name="primary_light">#82B1FF</color>
+    <color name="accent">#2979FF</color>
+
+    <!-- Backgrounds -->
+    <color name="background">#EDF2FB</color>
+    <color name="background_gradient_start">#E8F0FE</color>
+    <color name="background_gradient_end">#F0F4FF</color>
+
+    <!-- Glass card -->
+    <color name="surface">#B3FFFFFF</color>
+    <color name="surface_stroke">#66FFFFFF</color>
+    <color name="card_background">#B3FFFFFF</color>
+
+    <!-- Text -->
+    <color name="on_surface">#1A1A2E</color>
+    <color name="on_surface_secondary">#5F6B7A</color>
+
+    <!-- Functional -->
+    <color name="progress_background">#33597EF7</color>
+    <color name="success">#00C853</color>
+    <color name="error">#FF5252</color>
+    <color name="divider">#33000000</color>
+
+    <!-- Button -->
+    <color name="button_primary">#2979FF</color>
+    <color name="button_primary_pressed">#1565C0</color>
+    <color name="button_ghost">#1A2979FF</color>
+    <color name="button_ghost_text">#2979FF</color>
+
+    <!-- Format chips - Video (Blue, deeper for white text) -->
+    <color name="chip_video_fill_start">#1565C0</color>
+    <color name="chip_video_fill_end">#2979FF</color>
+    <color name="chip_video_stroke">#5C9CFF</color>
+    <color name="chip_video_bg">#142979FF</color>
+
+    <!-- Format chips - Audio (Teal, deeper for white text) -->
+    <color name="chip_audio_fill_start">#00796B</color>
+    <color name="chip_audio_fill_end">#00BFA5</color>
+    <color name="chip_audio_stroke">#4EECD4</color>
+    <color name="chip_audio_bg">#1400BFA5</color>
+
+    <!-- Log panel -->
+    <color name="log_background">#CCFFFFFF</color>
+    <color name="log_text">#5F6B7A</color>
 </resources>

@@ -38,7 +38,7 @@ public class YoutubeService {
     }
 
     public interface DownloadCallback {
-        void onProgress(int progress);
+        void onProgress(int progress, long downloadedBytes, long totalBytes);
         void onSuccess(String filePath);
         void onError(String error);
     }
@@ -103,8 +103,7 @@ public class YoutubeService {
                 YoutubeDLRequest request = new YoutubeDLRequest(videoUrl);
                 request.addOption("--dump-json");
                 request.addOption("--no-download");
-                // 加速解析：只用一个 player client，跳过不需要的内容
-                request.addOption("--extractor-args", "youtube:player_client=web");
+                // 不指定 player_client，让 yt-dlp 使用默认策略（自动选择最优客户端组合）
                 request.addOption("--no-playlist");
                 request.addOption("--no-check-certificates");
 
@@ -114,16 +113,37 @@ public class YoutubeService {
                     AppLogger.d(TAG, "Using cookies file");
                 }
 
+                AppLogger.d(TAG, "yt-dlp options: --dump-json --no-download --no-playlist --no-check-certificates"
+                        + (cookieFile != null ? " --cookies <file>" : ""));
+
                 com.yausername.youtubedl_android.YoutubeDLResponse response =
                         YoutubeDL.getInstance().execute(request);
 
                 String jsonOutput = response.getOut();
+                String errOutput = response.getErr();
+                AppLogger.d(TAG, "yt-dlp stdout length: " + (jsonOutput != null ? jsonOutput.length() : 0));
+                if (errOutput != null && !errOutput.isEmpty()) {
+                    // stderr 可能包含警告、player client 回退等重要信息
+                    AppLogger.w(TAG, "yt-dlp stderr:\n" + errOutput);
+                }
+
                 if (jsonOutput == null || jsonOutput.isEmpty()) {
                     callback.onError("No response from yt-dlp");
                     return;
                 }
 
                 JSONObject json = new JSONObject(jsonOutput);
+
+                // Save info JSON for download reuse (skip re-parsing)
+                File infoDir = new File(context.getCacheDir(), "ytdlp_info");
+                if (!infoDir.exists()) infoDir.mkdirs();
+                File infoFile = new File(infoDir, videoId + ".info.json");
+                try (FileWriter fw = new FileWriter(infoFile)) {
+                    fw.write(jsonOutput);
+                    AppLogger.d(TAG, "Saved info JSON: " + infoFile.getAbsolutePath());
+                } catch (IOException e) {
+                    AppLogger.w(TAG, "Failed to cache info JSON: " + e.getMessage());
+                }
 
                 String title = json.optString("title", "Unknown");
                 String author = json.optString("uploader", "Unknown");
@@ -155,17 +175,19 @@ public class YoutubeService {
                     return;
                 }
 
+                AppLogger.i(TAG, "yt-dlp returned " + formats.length() + " raw formats");
+
                 // Video dedup: key = resolution number
                 Map<Integer, VideoInfo.FormatOption> videoDedup = new HashMap<>();
                 // Audio dedup: key = abr (approx bitrate)
                 Map<Integer, VideoInfo.FormatOption> audioDedup = new HashMap<>();
 
+                int skippedProtocol = 0, skippedNoCodec = 0, skippedNoRes = 0, skippedNoAbr = 0;
+
                 for (int i = 0; i < formats.length(); i++) {
                     JSONObject fmt = formats.getJSONObject(i);
 
                     String protocol = fmt.optString("protocol", "");
-                    if (protocol.contains("m3u8") || protocol.contains("dash_frag")) continue;
-
                     String formatId = fmt.optString("format_id", "");
                     String ext = fmt.optString("ext", "");
                     String vcodec = fmt.optString("vcodec", "none");
@@ -177,10 +199,28 @@ public class YoutubeService {
                     boolean hasVideo = !"none".equals(vcodec);
                     boolean hasAudio = !"none".equals(acodec);
 
+                    // 记录每个格式的详细信息
+                    AppLogger.d(TAG, String.format("Format[%d]: id=%s ext=%s protocol=%s vcodec=%s acodec=%s height=%d note=%s size=%d",
+                            i, formatId, ext, protocol, vcodec, acodec, height, formatNote, filesize));
+
+                    if (protocol.contains("m3u8") || protocol.contains("dash_frag")) {
+                        skippedProtocol++;
+                        continue;
+                    }
+
+                    if (!hasVideo && !hasAudio) {
+                        skippedNoCodec++;
+                        continue;
+                    }
+
                     if (hasVideo) {
                         // Video format
                         int res = height > 0 ? height : parseResolution(formatNote);
-                        if (res <= 0) continue;
+                        if (res <= 0) {
+                            skippedNoRes++;
+                            AppLogger.d(TAG, "  -> skipped video: no resolution (height=" + height + ", note=" + formatNote + ")");
+                            continue;
+                        }
 
                         String quality = res + "p";
                         if (hasAudio) {
@@ -194,6 +234,7 @@ public class YoutubeService {
                         if (!exists) {
                             videoDedup.put(res, new VideoInfo.FormatOption(
                                     formatId, quality, ext, ext, filesize, hasAudio, true));
+                            AppLogger.d(TAG, "  -> added video: " + quality + " (id=" + formatId + ")");
                         } else {
                             VideoInfo.FormatOption existing = videoDedup.get(res);
                             boolean existingMuxed = existing.hasAudio();
@@ -203,6 +244,9 @@ public class YoutubeService {
                                 (hasAudio == existingMuxed && isMp4 && !existingMp4)) {
                                 videoDedup.put(res, new VideoInfo.FormatOption(
                                         formatId, quality, ext, ext, filesize, hasAudio, true));
+                                AppLogger.d(TAG, "  -> replaced video: " + quality + " (id=" + formatId + ")");
+                            } else {
+                                AppLogger.d(TAG, "  -> dedup skipped video: " + res + "p (id=" + formatId + ", existing=" + existing.getFormatId() + ")");
                             }
                         }
                     } else if (hasAudio) {
@@ -212,18 +256,26 @@ public class YoutubeService {
                             int tbr = (int) fmt.optDouble("tbr", 0);
                             abr = tbr > 0 ? tbr : 0;
                         }
-                        if (abr <= 0) continue;
+                        if (abr <= 0) {
+                            skippedNoAbr++;
+                            AppLogger.d(TAG, "  -> skipped audio: no bitrate (id=" + formatId + ")");
+                            continue;
+                        }
 
-                        String quality = formatNote.isEmpty() ? (abr + "kbps") : (formatNote + " " + abr + "kbps");
+                        String quality = abr + "kbps";
                         boolean isMp4 = "m4a".equals(ext) || "mp4".equals(ext);
                         boolean exists = audioDedup.containsKey(abr);
 
                         if (!exists || (isMp4 && !"m4a".equals(audioDedup.get(abr).getExt()))) {
                             audioDedup.put(abr, new VideoInfo.FormatOption(
                                     formatId, quality, ext, ext, filesize, true, false));
+                            AppLogger.d(TAG, "  -> added audio: " + quality + " (id=" + formatId + ")");
                         }
                     }
                 }
+
+                AppLogger.i(TAG, String.format("Format filter stats: total=%d, skippedProtocol=%d, skippedNoCodec=%d, skippedNoRes=%d, skippedNoAbr=%d",
+                        formats.length(), skippedProtocol, skippedNoCodec, skippedNoRes, skippedNoAbr));
 
                 // Sort video by resolution ascending
                 List<Integer> sortedRes = new ArrayList<>(videoDedup.keySet());
@@ -271,10 +323,17 @@ public class YoutubeService {
                 AppLogger.i(TAG, "yt-dlp download: videoId=" + videoId + ", format=" + formatSpec);
 
                 YoutubeDLRequest request = new YoutubeDLRequest(videoUrl);
+
+                // Reuse cached info JSON to skip re-parsing
+                File infoFile = new File(new File(context.getCacheDir(), "ytdlp_info"), videoId + ".info.json");
+                if (infoFile.exists()) {
+                    request.addOption("--load-info-json", infoFile.getAbsolutePath());
+                    AppLogger.i(TAG, "Using cached info JSON (skip re-parse)");
+                }
+
                 request.addOption("-f", formatSpec);
                 request.addOption("-o", outputPath);
                 request.addOption("--merge-output-format", "mp4");
-                request.addOption("--extractor-args", "youtube:player_client=web");
                 request.addOption("--no-playlist");
                 request.addOption("--no-check-certificates");
 
@@ -283,14 +342,19 @@ public class YoutubeService {
                     request.addOption("--cookies", cookieFile);
                 }
 
+                final long[] cachedTotal = {0};
+
                 com.yausername.youtubedl_android.YoutubeDLResponse dlResponse =
                     YoutubeDL.getInstance().execute(request, processId, (progress, etaInSeconds, line) -> {
                         if (line != null && !line.isEmpty()) {
                             AppLogger.d(TAG, line);
+                            long parsed = parseTotalBytes(line);
+                            if (parsed > 0) cachedTotal[0] = parsed;
                         }
                         int pct = progress.intValue();
                         if (pct >= 0) {
-                            callback.onProgress(pct);
+                            long downloaded = cachedTotal[0] > 0 ? (long)(cachedTotal[0] * pct / 100.0) : 0;
+                            callback.onProgress(pct, downloaded, cachedTotal[0]);
                         }
                         return kotlin.Unit.INSTANCE;
                     });
@@ -367,5 +431,23 @@ public class YoutubeService {
         if (qualityLabel == null) return 0;
         Matcher m = Pattern.compile("(\\d+)p").matcher(qualityLabel);
         return m.find() ? Integer.parseInt(m.group(1)) : 0;
+    }
+
+    /**
+     * Parse total bytes from yt-dlp output line like:
+     * "[download]  45.3% of 125.50MiB at 10.00MiB/s ETA 00:30"
+     */
+    private static long parseTotalBytes(String line) {
+        if (line == null) return 0;
+        Matcher m = Pattern.compile("of\\s+~?\\s*(\\d+\\.?\\d*)\\s*(KiB|MiB|GiB)").matcher(line);
+        if (m.find()) {
+            double val = Double.parseDouble(m.group(1));
+            switch (m.group(2)) {
+                case "KiB": return (long) (val * 1024);
+                case "MiB": return (long) (val * 1024 * 1024);
+                case "GiB": return (long) (val * 1024 * 1024 * 1024);
+            }
+        }
+        return 0;
     }
 }

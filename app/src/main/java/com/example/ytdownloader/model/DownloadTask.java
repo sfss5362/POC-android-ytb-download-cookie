@@ -75,12 +75,26 @@ public class DownloadTask {
 
     public String getStatusText() {
         switch (status) {
-            case PENDING: return "Waiting...";
-            case DOWNLOADING: return "Downloading... " + progress + "%";
+            case PENDING: return "Preparing...";
+            case DOWNLOADING:
+                if (totalBytes > 0 && downloadedBytes > 0) {
+                    return formatBytes(downloadedBytes) + " / " + formatBytes(totalBytes);
+                }
+                if (progress > 0) {
+                    return "Downloading... " + progress + "%";
+                }
+                return "Preparing...";
             case COMPLETED: return "Completed";
             case FAILED: return "Failed: " + (errorMessage != null ? errorMessage : "Unknown error");
             case CANCELLED: return "Cancelled";
             default: return "";
         }
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes <= 0) return "0 B";
+        if (bytes < 1024L * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024L * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
     }
 }

@@ -1,8 +1,6 @@
 package com.example.ytdownloader;
 
 import android.Manifest;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -18,15 +16,15 @@ import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.cardview.widget.CardView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -40,7 +38,6 @@ import com.example.ytdownloader.model.VideoInfo;
 import com.example.ytdownloader.service.DownloadService;
 import com.example.ytdownloader.service.YoutubeService;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.textfield.TextInputEditText;
 import com.yausername.youtubedl_android.YoutubeDL;
 import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel;
 import com.yausername.youtubedl_android.YoutubeDL.UpdateStatus;
@@ -51,10 +48,10 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private static final String TAG = "MainActivity";
     private static final int REQUEST_NOTIFICATION_PERMISSION = 1001;
 
-    private TextInputEditText etUrl;
+    private EditText etUrl;
     private MaterialButton btnParse;
-    private MaterialButton btnUpdateYtDlp;
-    private CardView cardVideoInfo;
+    private ImageButton btnUpdateYtDlp;
+    private View cardVideoInfo;
     private ImageView ivThumbnail;
     private TextView tvTitle;
     private TextView tvDuration;
@@ -62,15 +59,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private ProgressBar progressLoading;
     private RecyclerView rvDownloads;
     private TextView tvEmpty;
-
-    // Log UI
-    private View logToggleBar;
-    private TextView tvLogToggle;
-    private CardView cardLog;
-    private TextView tvLog;
-    private MaterialButton btnCopyLog;
-    private MaterialButton btnClearLog;
-    private boolean logExpanded = true;
 
     private YoutubeService youtubeService;
     private DownloadService downloadService;
@@ -149,14 +137,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         rvDownloads = findViewById(R.id.rvDownloads);
         tvEmpty = findViewById(R.id.tvEmpty);
 
-        // Log UI
-        logToggleBar = findViewById(R.id.logToggleBar);
-        tvLogToggle = findViewById(R.id.tvLogToggle);
-        cardLog = findViewById(R.id.cardLog);
-        tvLog = findViewById(R.id.tvLog);
-        btnCopyLog = findViewById(R.id.btnCopyLog);
-        btnClearLog = findViewById(R.id.btnClearLog);
-
         // Default test URL
         etUrl.setText("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
 
@@ -190,23 +170,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         });
 
         btnUpdateYtDlp.setOnClickListener(v -> updateYtDlp());
-
-        tvLogToggle.setOnClickListener(v -> toggleLogPanel());
-
-        btnCopyLog.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("YTDownloader Log", AppLogger.getLog());
-            clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
-        });
-
-        btnClearLog.setOnClickListener(v -> {
-            AppLogger.clear();
-            tvLog.setText("");
-            logExpanded = false;
-            cardLog.setVisibility(View.GONE);
-            logToggleBar.setVisibility(View.GONE);
-        });
     }
 
     private void updateYtDlp() {
@@ -252,12 +215,6 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 AppLogger.d(TAG, message);
                 break;
         }
-    }
-
-    private void toggleLogPanel() {
-        logExpanded = !logExpanded;
-        cardLog.setVisibility(logExpanded ? View.VISIBLE : View.GONE);
-        tvLogToggle.setText(logExpanded ? "Log \u25BC" : "Log \u25B2");
     }
 
     private void parseVideo(String videoId) {
@@ -318,60 +275,90 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         llFormats.removeAllViews();
         LayoutInflater inflater = LayoutInflater.from(this);
 
-        // --- Video section ---
+        // --- Video section: top 3 highest resolution ---
         List<VideoInfo.FormatOption> videoFormats = videoInfo.getVideoFormats();
         if (videoFormats != null && !videoFormats.isEmpty()) {
-            addSectionHeader("Video");
-            for (VideoInfo.FormatOption format : videoFormats) {
+            addSectionHeader("\u25B6  Video");
+            int start = Math.max(0, videoFormats.size() - 3);
+            List<VideoInfo.FormatOption> top3 = videoFormats.subList(start, videoFormats.size());
+            LinearLayout row = createButtonRow();
+            for (int i = top3.size() - 1; i >= 0; i--) {
+                VideoInfo.FormatOption format = top3.get(i);
                 String label = format.getQuality();
-                if (format.hasAudio()) {
-                    label += " (with audio)";
-                }
                 String size = format.getContentLength() > 0 ? formatSize(format.getContentLength()) : "";
-                addFormatRow(inflater, label, size, v -> startFormatDownload(videoInfo, format, true));
+                addFormatChip(inflater, row, label, size, true,
+                        v -> startFormatDownload(videoInfo, format, true));
             }
+            llFormats.addView(row);
         }
 
-        // --- Audio section ---
+        // --- Audio section: only the highest bitrate ---
         List<VideoInfo.FormatOption> audioFormats = videoInfo.getAudioFormats();
         if (audioFormats != null && !audioFormats.isEmpty()) {
-            addSectionHeader("Audio");
-            for (VideoInfo.FormatOption format : audioFormats) {
-                String label = format.getQuality();
-                String size = format.getContentLength() > 0 ? formatSize(format.getContentLength()) : "";
-                addFormatRow(inflater, label, size, v -> startFormatDownload(videoInfo, format, false));
+            addSectionHeader("\u266A  Audio");
+            VideoInfo.FormatOption bestAudio = audioFormats.get(audioFormats.size() - 1);
+            String label = bestAudio.getQuality();
+            String size = bestAudio.getContentLength() > 0 ? formatSize(bestAudio.getContentLength()) : "";
+            LinearLayout row = createButtonRow();
+            addFormatChip(inflater, row, label, size, false,
+                    v -> startFormatDownload(videoInfo, bestAudio, false));
+            // 2 spacers to keep button width = 1/3 (same as video buttons)
+            for (int s = 0; s < 2; s++) {
+                View spacer = new View(this);
+                spacer.setLayoutParams(new LinearLayout.LayoutParams(
+                        0, 0, 1f));
+            row.addView(spacer);
             }
+            llFormats.addView(row);
         }
 
-        // --- Other section (cover image) ---
+        // --- Cover: click thumbnail to download ---
         List<String> thumbUrls = videoInfo.getThumbnailUrls();
         if (thumbUrls != null && !thumbUrls.isEmpty()) {
-            addSectionHeader("Other");
             String coverUrl = thumbUrls.get(thumbUrls.size() - 1);
-            addFormatRow(inflater, "Cover image", "", v -> startThumbnailDownload(videoInfo, coverUrl));
+            ivThumbnail.setOnClickListener(v -> startThumbnailDownload(videoInfo, coverUrl));
         }
+    }
+
+    private LinearLayout createButtonRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        return row;
     }
 
     private void addSectionHeader(String title) {
         TextView header = new TextView(this);
-        header.setText("\u2500\u2500 " + title + " \u2500\u2500");
+        header.setText(title);
         header.setTextColor(ContextCompat.getColor(this, R.color.on_surface_secondary));
-        header.setTextSize(12);
-        header.setPadding(4, 12, 4, 4);
+        header.setTextSize(11);
+        header.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
+        header.setPadding(8, 18, 4, 6);
+        header.setLetterSpacing(0.08f);
         llFormats.addView(header);
     }
 
-    private void addFormatRow(LayoutInflater inflater, String quality, String size, View.OnClickListener downloadListener) {
-        View row = inflater.inflate(R.layout.item_format_option, llFormats, false);
-        TextView tvQuality = row.findViewById(R.id.tvFormatQuality);
-        TextView tvSize = row.findViewById(R.id.tvFormatSize);
-        View btnDownload = row.findViewById(R.id.btnFormatDownload);
+    private void addFormatChip(LayoutInflater inflater, LinearLayout row,
+                               String quality, String size, boolean isVideo,
+                               View.OnClickListener downloadListener) {
+        View block = inflater.inflate(R.layout.item_format_option, row, false);
+        TextView tvQuality = block.findViewById(R.id.tvFormatQuality);
+        TextView tvSize = block.findViewById(R.id.tvFormatSize);
 
         tvQuality.setText(quality);
         tvSize.setText(size);
-        btnDownload.setOnClickListener(downloadListener);
 
-        llFormats.addView(row);
+        if (isVideo) {
+            block.setBackgroundResource(R.drawable.chip_video_hero);
+        } else {
+            block.setBackgroundResource(R.drawable.chip_audio_hero);
+        }
+        tvQuality.setTextColor(0xFFFFFFFF);
+        tvSize.setTextColor(0xFFFFFFFF);
+
+        block.setOnClickListener(downloadListener);
+        row.addView(block);
     }
 
     private void startFormatDownload(VideoInfo videoInfo, VideoInfo.FormatOption format, boolean isVideo) {
@@ -503,15 +490,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
     @Override
     public void onNewLog(String fullLog) {
-        mainHandler.post(() -> {
-            tvLog.setText(fullLog);
-            logToggleBar.setVisibility(View.VISIBLE);
-            if (logExpanded) {
-                cardLog.setVisibility(View.VISIBLE);
-                ScrollView scrollView = (ScrollView) tvLog.getParent();
-                scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
-            }
-        });
+        // Log is still collected by AppLogger, just not displayed in UI
     }
 
     @Override

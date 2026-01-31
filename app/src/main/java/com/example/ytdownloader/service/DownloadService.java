@@ -160,8 +160,10 @@ public class DownloadService extends Service {
                 outputPath,
                 new YoutubeService.DownloadCallback() {
                     @Override
-                    public void onProgress(int progress) {
+                    public void onProgress(int progress, long downloadedBytes, long totalBytes) {
                         task.setProgress(progress);
+                        task.setDownloadedBytes(downloadedBytes);
+                        task.setTotalBytes(totalBytes);
                         notifyTaskUpdated(task);
                     }
 
@@ -258,25 +260,20 @@ public class DownloadService extends Service {
                     return;
                 }
 
-                File moviesDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "YTDownloader");
-                if (!moviesDir.exists()) {
-                    moviesDir.mkdirs();
-                }
-
                 String ext = ".jpg";
                 String contentType = body.contentType() != null ? body.contentType().toString() : "";
                 if (contentType.contains("png")) ext = ".png";
                 else if (contentType.contains("webp")) ext = ".webp";
 
-                File destFile = new File(moviesDir, safeTitle + "_cover" + ext);
-                int n = 1;
-                while (destFile.exists()) {
-                    destFile = new File(moviesDir, safeTitle + "_cover_" + n + ext);
-                    n++;
+                // 先写缓存目录，再通过 moveToMoviesAndComplete 移到 Movies
+                File cacheDir = new File(getCacheDir(), "ytdlp_downloads");
+                if (!cacheDir.exists()) {
+                    cacheDir.mkdirs();
                 }
+                File cacheFile = new File(cacheDir, safeTitle + "_cover" + ext);
 
                 InputStream in = body.byteStream();
-                FileOutputStream out = new FileOutputStream(destFile);
+                FileOutputStream out = new FileOutputStream(cacheFile);
                 byte[] buf = new byte[8192];
                 int len;
                 while ((len = in.read(buf)) > 0) {
@@ -285,11 +282,8 @@ public class DownloadService extends Service {
                 in.close();
                 out.close();
 
-                AppLogger.i(TAG, "Cover saved: " + destFile.getAbsolutePath());
-                task.setOutputPath(destFile.getAbsolutePath());
-                MediaScannerConnection.scanFile(this,
-                        new String[]{destFile.getAbsolutePath()}, null, null);
-                completeTask(task);
+                AppLogger.i(TAG, "Cover cached: " + cacheFile.getAbsolutePath());
+                moveToMoviesAndComplete(task, cacheFile.getAbsolutePath());
             } catch (Exception e) {
                 AppLogger.e(TAG, "Cover download failed", e);
                 task.setErrorMessage(e.getMessage());
