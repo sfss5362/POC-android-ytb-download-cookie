@@ -25,8 +25,12 @@ import java.util.regex.Pattern;
 
 public class YoutubeService {
     private static final String TAG = "YoutubeService";
-    private static final String BOT_DETECTION_MESSAGE = "Sign in to confirm you're not a bot";
-    private static final String LOGIN_REQUIRED = "LOGIN_REQUIRED";
+    private static final String[] BOT_DETECTION_KEYWORDS = {
+            "Sign in to confirm",
+            "not a bot",
+            "LOGIN_REQUIRED",
+            "HTTP Error 429"
+    };
 
     private final Context context;
     private final CookieStorage cookieStorage;
@@ -103,9 +107,10 @@ public class YoutubeService {
                 YoutubeDLRequest request = new YoutubeDLRequest(videoUrl);
                 request.addOption("--dump-json");
                 request.addOption("--no-download");
-                // 不指定 player_client，让 yt-dlp 使用默认策略（自动选择最优客户端组合）
                 request.addOption("--no-playlist");
                 request.addOption("--no-check-certificates");
+                request.addOption("--no-warnings");
+                request.addOption("--socket-timeout", "10");
 
                 String cookieFile = getCookieFilePath();
                 if (cookieFile != null) {
@@ -113,8 +118,7 @@ public class YoutubeService {
                     AppLogger.d(TAG, "Using cookies file");
                 }
 
-                AppLogger.d(TAG, "yt-dlp options: --dump-json --no-download --no-playlist --no-check-certificates"
-                        + (cookieFile != null ? " --cookies <file>" : ""));
+                AppLogger.d(TAG, "yt-dlp command: " + request.buildCommand().toString());
 
                 com.yausername.youtubedl_android.YoutubeDLResponse response =
                         YoutubeDL.getInstance().execute(request);
@@ -223,9 +227,6 @@ public class YoutubeService {
                         }
 
                         String quality = res + "p";
-                        if (hasAudio) {
-                            quality += " (with audio)";
-                        }
 
                         boolean isMp4 = "mp4".equals(ext) || "m4a".equals(ext);
                         boolean exists = videoDedup.containsKey(res);
@@ -301,7 +302,7 @@ public class YoutubeService {
             } catch (Exception e) {
                 String message = e.getMessage();
                 AppLogger.e(TAG, "Exception parsing video: " + (message != null ? message : e.getClass().getName()), e);
-                if (message != null && (message.contains(BOT_DETECTION_MESSAGE) || message.contains(LOGIN_REQUIRED))) {
+                if (message != null && isBotDetection(message)) {
                     AppLogger.w(TAG, "Bot detection triggered");
                     callback.onBotDetected();
                 } else {
@@ -320,15 +321,12 @@ public class YoutubeService {
         new Thread(() -> {
             try {
                 String videoUrl = "https://www.youtube.com/watch?v=" + videoId;
-                AppLogger.i(TAG, "yt-dlp download: videoId=" + videoId + ", format=" + formatSpec);
-
                 YoutubeDLRequest request = new YoutubeDLRequest(videoUrl);
 
                 // Reuse cached info JSON to skip re-parsing
                 File infoFile = new File(new File(context.getCacheDir(), "ytdlp_info"), videoId + ".info.json");
                 if (infoFile.exists()) {
                     request.addOption("--load-info-json", infoFile.getAbsolutePath());
-                    AppLogger.i(TAG, "Using cached info JSON (skip re-parse)");
                 }
 
                 request.addOption("-f", formatSpec);
@@ -341,6 +339,8 @@ public class YoutubeService {
                 if (cookieFile != null) {
                     request.addOption("--cookies", cookieFile);
                 }
+
+                AppLogger.i(TAG, "yt-dlp download command: " + request.buildCommand().toString());
 
                 final long[] cachedTotal = {0};
 
@@ -425,6 +425,13 @@ public class YoutubeService {
             YoutubeDL.getInstance().destroyProcessById(processId);
             AppLogger.i(TAG, "Cancelled download process: " + processId);
         }
+    }
+
+    private static boolean isBotDetection(String message) {
+        for (String keyword : BOT_DETECTION_KEYWORDS) {
+            if (message.contains(keyword)) return true;
+        }
+        return false;
     }
 
     private static int parseResolution(String qualityLabel) {

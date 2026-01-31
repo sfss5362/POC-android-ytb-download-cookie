@@ -20,4 +20,73 @@
     <string name="notification_channel_name">Download Progress</string>
     <string name="notification_downloading">Downloading: %1$s</string>
     <string name="no_downloads">No downloads yet</string>
+
+    <!-- Settings -->
+    <string name="settings_basic">Basic Settings</string>
+    <string name="settings_advanced">Advanced Settings</string>
+    <string name="settings_download_path">Download Path</string>
+    <string name="settings_video_quality">Video Quality</string>
+    <string name="settings_audio_quality">Audio Quality</string>
+    <string name="settings_dark_mode">Dark Mode</string>
+    <string name="settings_dark_mode_hint">Coming soon</string>
+    <string name="settings_max_concurrent">Max Concurrent Downloads</string>
+    <string name="settings_speed_limit">Speed Limit</string>
+    <string name="settings_subtitles">Download Subtitles</string>
+    <string name="settings_proxy">Proxy</string>
+    <string name="settings_proxy_hint">e.g. http://127.0.0.1:10809</string>
+    <string name="settings_cookie_status">Cookie Status</string>
+    <string name="settings_cookie_not_logged_in">Not logged in</string>
+    <string name="settings_cookie_logged_in">Logged in</string>
+    <string name="settings_go_to_login">Go to Login</string>
+    <string name="settings_ytdlp_version">yt-dlp Version</string>
+    <string name="settings_update_ytdlp">Update</string>
+    <string name="settings_cookies_cleared">Cookies cleared</string>
+
+    <!-- Login status -->
+    <string name="login_status_logged_in">Signed in to YouTube</string>
+    <string name="login_status_not_logged_in">Sign in to YouTube for unrestricted downloads</string>
+
+    <!-- Spinner arrays -->
+    <string-array name="video_quality_options">
+        <item>Best</item>
+        <item>1080p</item>
+        <item>720p</item>
+        <item>480p</item>
+    </string-array>
+    <string-array name="video_quality_values">
+        <item>best</item>
+        <item>1080</item>
+        <item>720</item>
+        <item>480</item>
+    </string-array>
+
+    <string-array name="audio_quality_options">
+        <item>Best</item>
+        <item>192kbps</item>
+        <item>128kbps</item>
+    </string-array>
+    <string-array name="audio_quality_values">
+        <item>best</item>
+        <item>192</item>
+        <item>128</item>
+    </string-array>
+
+    <string-array name="max_concurrent_options">
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+    </string-array>
+
+    <string-array name="speed_limit_options">
+        <item>Unlimited</item>
+        <item>1 MB/s</item>
+        <item>500 KB/s</item>
+        <item>200 KB/s</item>
+    </string-array>
+    <string-array name="speed_limit_values">
+        <item>unlimited</item>
+        <item>1M</item>
+        <item>500K</item>
+        <item>200K</item>
+    </string-array>
 </resources>

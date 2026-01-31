@@ -6,188 +6,665 @@
     android:orientation="vertical"
     android:background="@drawable/bg_gradient">
 
-    <!-- URL Input Section (fixed at top) -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="16dp"
-        android:paddingTop="16dp"
-        android:paddingBottom="8dp">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@drawable/bg_glass_input"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="16dp"
-            android:minHeight="48dp">
-
-            <EditText
-                android:id="@+id/etUrl"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@null"
-                android:hint="@string/hint_url"
-                android:textColorHint="@color/on_surface_secondary"
-                android:inputType="textUri"
-                android:textColor="@color/on_surface"
-                android:textSize="14sp"
-                android:maxLines="1"
-                android:singleLine="true" />
-
-        </LinearLayout>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnParse"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
-            android:text="@string/btn_parse"
-            android:textColor="@android:color/white"
-            android:textAllCaps="false"
-            android:letterSpacing="0"
-            app:backgroundTint="@color/button_primary"
-            app:cornerRadius="14dp"
-            app:elevation="0dp" />
-
-        <ImageButton
-            android:id="@+id/btnUpdateYtDlp"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_button_ghost"
-            android:src="@android:drawable/stat_notify_sync"
-            android:scaleType="centerInside"
-            android:padding="8dp"
-            android:contentDescription="Update yt-dlp" />
-
-    </LinearLayout>
-
-    <!-- Scrollable content area -->
-    <androidx.core.widget.NestedScrollView
+    <!-- Content container -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true"
-        android:clipToPadding="false">
+        android:layout_weight="1">
 
+        <!-- Tab 0: Download content -->
         <LinearLayout
+            android:id="@+id/downloadContent"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingBottom="16dp">
+            android:layout_height="match_parent"
+            android:orientation="vertical">
 
-            <!-- Video Info Card -->
+            <!-- URL Input Section -->
             <LinearLayout
-                android:id="@+id/cardVideoInfo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginHorizontal="16dp"
-                android:layout_marginTop="8dp"
-                android:orientation="vertical"
-                android:background="@drawable/bg_glass_card"
-                android:padding="16dp"
-                android:visibility="gone">
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_glass_input"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:minHeight="48dp">
+
+                    <EditText
+                        android:id="@+id/etUrl"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@null"
+                        android:hint="@string/hint_url"
+                        android:textColorHint="@color/on_surface_secondary"
+                        android:inputType="textUri"
+                        android:textColor="@color/on_surface"
+                        android:textSize="14sp"
+                        android:maxLines="1"
+                        android:singleLine="true" />
+
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnParse"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/btn_parse"
+                    android:textColor="@android:color/white"
+                    android:textAllCaps="false"
+                    android:letterSpacing="0"
+                    app:backgroundTint="@color/button_primary"
+                    app:cornerRadius="14dp"
+                    app:elevation="0dp" />
+
+            </LinearLayout>
+
+            <!-- Scrollable content area -->
+            <androidx.core.widget.NestedScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:fillViewport="true"
+                android:clipToPadding="false">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:orientation="vertical"
+                    android:paddingBottom="16dp">
 
-                    <ImageView
-                        android:id="@+id/ivThumbnail"
-                        android:layout_width="120dp"
-                        android:layout_height="68dp"
-                        android:scaleType="centerCrop"
-                        android:background="@drawable/bg_thumbnail"
-                        android:clipToOutline="true" />
-
+                    <!-- Video Info Card -->
                     <LinearLayout
+                        android:id="@+id/cardVideoInfo"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="16dp"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_glass_card"
+                        android:padding="16dp"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:id="@+id/ivThumbnail"
+                                android:layout_width="120dp"
+                                android:layout_height="68dp"
+                                android:scaleType="centerCrop"
+                                android:background="@drawable/bg_thumbnail"
+                                android:clipToOutline="true" />
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="12dp"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:id="@+id/tvTitle"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:textColor="@color/on_surface"
+                                    android:textSize="14sp"
+                                    android:textStyle="bold"
+                                    android:maxLines="2"
+                                    android:ellipsize="end"
+                                    android:lineSpacingExtra="2dp" />
+
+                                <TextView
+                                    android:id="@+id/tvDuration"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:textColor="@color/on_surface_secondary"
+                                    android:textSize="12sp"
+                                    android:layout_marginTop="4dp" />
+
+                            </LinearLayout>
+
+                        </LinearLayout>
+
+                        <!-- Format List -->
+                        <LinearLayout
+                            android:id="@+id/llFormats"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:layout_marginTop="14dp" />
+
+                    </LinearLayout>
+
+                    <!-- Loading Indicator (horizontal indeterminate) -->
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/progressLoading"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:layout_marginHorizontal="20dp"
+                        android:visibility="gone"
+                        android:indeterminate="true"
+                        app:indicatorColor="@color/primary"
+                        app:trackColor="#1AE8652B"
+                        app:trackCornerRadius="2dp"
+                        app:trackThickness="4dp" />
+
+                    <!-- Download List Section -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Downloads"
+                        android:textColor="@color/on_surface"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:paddingHorizontal="20dp"
+                        android:paddingTop="20dp"
+                        android:paddingBottom="8dp" />
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rvDownloads"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:nestedScrollingEnabled="false"
+                        android:paddingHorizontal="16dp"
+                        android:clipToPadding="false" />
+
+                    <TextView
+                        android:id="@+id/tvEmpty"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:paddingVertical="40dp"
+                        android:text="@string/no_downloads"
+                        android:textColor="@color/on_surface_secondary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+            </androidx.core.widget.NestedScrollView>
+
+        </LinearLayout>
+
+        <!-- Tab 1: Login content (WebView) -->
+        <LinearLayout
+            android:id="@+id/loginContent"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <!-- Address bar -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/bg_glass_input"
+                    android:paddingHorizontal="16dp"
+                    android:minHeight="44dp">
+
+                    <EditText
+                        android:id="@+id/etWebViewUrl"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="12dp"
-                        android:orientation="vertical">
+                        android:background="@null"
+                        android:hint="URL"
+                        android:textColorHint="@color/on_surface_secondary"
+                        android:inputType="textUri"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:maxLines="1"
+                        android:singleLine="true"
+                        android:imeOptions="actionGo" />
 
-                        <TextView
-                            android:id="@+id/tvTitle"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:textColor="@color/on_surface"
-                            android:textSize="14sp"
-                            android:textStyle="bold"
-                            android:maxLines="2"
-                            android:ellipsize="end"
-                            android:lineSpacingExtra="2dp" />
+                    <ProgressBar
+                        android:id="@+id/progressWebView"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginStart="8dp"
+                        android:indeterminateTint="@color/primary"
+                        android:visibility="gone" />
 
-                        <TextView
-                            android:id="@+id/tvDuration"
-                            android:layout_width="match_parent"
+                </LinearLayout>
+
+                <ImageButton
+                    android:id="@+id/btnWebViewHome"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/bg_button_ghost"
+                    android:src="@android:drawable/ic_menu_revert"
+                    android:scaleType="centerInside"
+                    android:padding="8dp"
+                    android:contentDescription="YouTube Home" />
+
+            </LinearLayout>
+
+            <!-- Login status banner -->
+            <TextView
+                android:id="@+id/tvLoginStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/login_status_not_logged_in"
+                android:textColor="@color/on_surface_secondary"
+                android:textSize="12sp"
+                android:gravity="center"
+                android:paddingVertical="6dp"
+                android:paddingHorizontal="16dp"
+                android:background="#0A000000" />
+
+            <WebView
+                android:id="@+id/webViewLogin"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+        </LinearLayout>
+
+        <!-- Tab 2: Settings content -->
+        <ScrollView
+            android:id="@+id/settingsContent"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:fillViewport="true"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="16dp">
+
+                <!-- Basic Settings Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_glass_card"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_basic"
+                        android:textColor="@color/primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:paddingBottom="12dp" />
+
+                    <!-- Download Path (read-only) -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_download_path"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:paddingBottom="4dp" />
+
+                    <TextView
+                        android:id="@+id/tvDownloadPath"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/on_surface_secondary"
+                        android:textSize="12sp"
+                        android:paddingBottom="12dp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@drawable/bg_settings_divider" />
+
+                    <!-- Video Quality Spinner -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_video_quality"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="4dp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerVideoQuality"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_glass_input"
+                        android:paddingHorizontal="12dp"
+                        android:entries="@array/video_quality_options" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_settings_divider" />
+
+                    <!-- Audio Quality Spinner -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_audio_quality"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="4dp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerAudioQuality"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_glass_input"
+                        android:paddingHorizontal="12dp"
+                        android:entries="@array/audio_quality_options" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_settings_divider" />
+
+                    <!-- Dark Mode Switch -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="12dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:textColor="@color/on_surface_secondary"
-                            android:textSize="12sp"
-                            android:layout_marginTop="4dp" />
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/settings_dark_mode"
+                                android:textColor="@color/on_surface"
+                                android:textSize="13sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/settings_dark_mode_hint"
+                                android:textColor="@color/on_surface_secondary"
+                                android:textSize="11sp" />
+
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/switchDarkMode"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:enabled="false" />
 
                     </LinearLayout>
 
                 </LinearLayout>
 
-                <!-- Format List -->
+                <!-- Advanced Settings Card -->
                 <LinearLayout
-                    android:id="@+id/llFormats"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:layout_marginTop="14dp" />
+                    android:background="@drawable/bg_glass_card"
+                    android:padding="16dp"
+                    android:layout_marginTop="12dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_advanced"
+                        android:textColor="@color/primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:paddingBottom="12dp" />
+
+                    <!-- Max Concurrent Spinner -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_max_concurrent"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:paddingBottom="4dp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerMaxConcurrent"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_glass_input"
+                        android:paddingHorizontal="12dp"
+                        android:entries="@array/max_concurrent_options" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_settings_divider" />
+
+                    <!-- Speed Limit Spinner -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_speed_limit"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="4dp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerSpeedLimit"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_glass_input"
+                        android:paddingHorizontal="12dp"
+                        android:entries="@array/speed_limit_options" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_settings_divider" />
+
+                    <!-- Download Subtitles Switch -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/settings_subtitles"
+                            android:textColor="@color/on_surface"
+                            android:textSize="13sp" />
+
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/switchSubtitles"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@drawable/bg_settings_divider" />
+
+                    <!-- Proxy EditText -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_proxy"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="4dp" />
+
+                    <EditText
+                        android:id="@+id/etProxy"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_glass_input"
+                        android:paddingHorizontal="12dp"
+                        android:hint="@string/settings_proxy_hint"
+                        android:textColorHint="@color/on_surface_secondary"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:maxLines="1"
+                        android:singleLine="true"
+                        android:inputType="textUri" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_settings_divider" />
+
+                    <!-- Cookie Status -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_cookie_status"
+                        android:textColor="@color/on_surface"
+                        android:textSize="13sp"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="4dp" />
+
+                    <TextView
+                        android:id="@+id/tvCookieStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_cookie_not_logged_in"
+                        android:textColor="@color/on_surface_secondary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/tvCookiePath"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/on_surface_secondary"
+                        android:textSize="11sp"
+                        android:paddingTop="2dp"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnGoToLogin"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/settings_go_to_login"
+                        android:textColor="@color/button_ghost_text"
+                        android:textAllCaps="false"
+                        android:textSize="13sp"
+                        android:letterSpacing="0"
+                        app:backgroundTint="@color/button_ghost"
+                        app:cornerRadius="14dp"
+                        app:elevation="0dp"
+                        android:visibility="gone" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_settings_divider" />
+
+                    <!-- yt-dlp version + update -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="12dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/settings_ytdlp_version"
+                                android:textColor="@color/on_surface"
+                                android:textSize="13sp" />
+
+                            <TextView
+                                android:id="@+id/tvYtDlpVersion"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="..."
+                                android:textColor="@color/on_surface_secondary"
+                                android:textSize="12sp"
+                                android:paddingTop="2dp" />
+
+                        </LinearLayout>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnUpdateYtDlp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="@string/settings_update_ytdlp"
+                            android:textColor="@color/button_ghost_text"
+                            android:textAllCaps="false"
+                            android:textSize="12sp"
+                            android:letterSpacing="0"
+                            app:backgroundTint="@color/button_ghost"
+                            app:cornerRadius="12dp"
+                            app:elevation="0dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
 
             </LinearLayout>
 
-            <!-- Loading Indicator -->
-            <ProgressBar
-                android:id="@+id/progressLoading"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginTop="32dp"
-                android:visibility="gone"
-                android:indeterminateTint="@color/primary" />
+        </ScrollView>
 
-            <!-- Download List Section -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Downloads"
-                android:textColor="@color/on_surface"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:paddingHorizontal="20dp"
-                android:paddingTop="20dp"
-                android:paddingBottom="8dp" />
+    </FrameLayout>
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvDownloads"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:nestedScrollingEnabled="false"
-                android:paddingHorizontal="16dp"
-                android:clipToPadding="false" />
-
-            <TextView
-                android:id="@+id/tvEmpty"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:paddingVertical="40dp"
-                android:text="@string/no_downloads"
-                android:textColor="@color/on_surface_secondary"
-                android:textSize="14sp"
-                android:visibility="gone" />
-
-        </LinearLayout>
-
-    </androidx.core.widget.NestedScrollView>
+    <!-- Bottom Navigation -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_bottom_nav"
+        app:itemIconTint="@color/bottom_nav_color"
+        app:itemTextColor="@color/bottom_nav_color"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/bottom_nav_menu" />
 
 </LinearLayout>

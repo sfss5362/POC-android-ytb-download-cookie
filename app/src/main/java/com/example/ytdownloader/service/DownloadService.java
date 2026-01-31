@@ -86,6 +86,17 @@ public class DownloadService extends Service {
         youtubeService.refreshDownloader();
     }
 
+    public boolean hasActiveDownload(String videoId) {
+        for (DownloadTask task : tasks.values()) {
+            if (task.getVideoId().equals(videoId)
+                    && (task.getStatus() == DownloadTask.Status.PENDING
+                        || task.getStatus() == DownloadTask.Status.DOWNLOADING)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public List<DownloadTask> getAllTasks() {
         return new ArrayList<>(tasks.values());
     }

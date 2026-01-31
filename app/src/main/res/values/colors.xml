@@ -1,50 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Glassmorphism Light Blue Theme -->
-    <color name="primary">#2979FF</color>
-    <color name="primary_dark">#1565C0</color>
-    <color name="primary_light">#82B1FF</color>
-    <color name="accent">#2979FF</color>
+    <!-- Warm Orange + Cream Theme -->
+    <color name="primary">#E8652B</color>
+    <color name="primary_dark">#C4471A</color>
+    <color name="primary_light">#F5A676</color>
+    <color name="accent">#E8652B</color>
 
-    <!-- Backgrounds -->
-    <color name="background">#EDF2FB</color>
-    <color name="background_gradient_start">#E8F0FE</color>
-    <color name="background_gradient_end">#F0F4FF</color>
+    <!-- Backgrounds (soft cream) -->
+    <color name="background">#FFFCFA</color>
+    <color name="background_gradient_start">#FFFBF8</color>
+    <color name="background_gradient_end">#FFFDF9</color>
 
     <!-- Glass card -->
     <color name="surface">#B3FFFFFF</color>
     <color name="surface_stroke">#66FFFFFF</color>
     <color name="card_background">#B3FFFFFF</color>
 
-    <!-- Text -->
-    <color name="on_surface">#1A1A2E</color>
-    <color name="on_surface_secondary">#5F6B7A</color>
+    <!-- Text (warm brown) -->
+    <color name="on_surface">#2D1B0E</color>
+    <color name="on_surface_secondary">#7A6555</color>
 
     <!-- Functional -->
-    <color name="progress_background">#33597EF7</color>
+    <color name="progress_background">#33E8652B</color>
     <color name="success">#00C853</color>
     <color name="error">#FF5252</color>
     <color name="divider">#33000000</color>
 
     <!-- Button -->
-    <color name="button_primary">#2979FF</color>
-    <color name="button_primary_pressed">#1565C0</color>
-    <color name="button_ghost">#1A2979FF</color>
-    <color name="button_ghost_text">#2979FF</color>
+    <color name="button_primary">#E8652B</color>
+    <color name="button_primary_pressed">#C4471A</color>
+    <color name="button_ghost">#1AE8652B</color>
+    <color name="button_ghost_text">#E8652B</color>
 
-    <!-- Format chips - Video (Blue, deeper for white text) -->
-    <color name="chip_video_fill_start">#1565C0</color>
-    <color name="chip_video_fill_end">#2979FF</color>
-    <color name="chip_video_stroke">#5C9CFF</color>
-    <color name="chip_video_bg">#142979FF</color>
+    <!-- Format chips - Video (Soft Orange) -->
+    <color name="chip_video_fill_start">#EF8A5A</color>
+    <color name="chip_video_fill_end">#F5A676</color>
+    <color name="chip_video_stroke">#F8C4A0</color>
+    <color name="chip_video_bg">#14E8652B</color>
 
-    <!-- Format chips - Audio (Teal, deeper for white text) -->
-    <color name="chip_audio_fill_start">#00796B</color>
-    <color name="chip_audio_fill_end">#00BFA5</color>
-    <color name="chip_audio_stroke">#4EECD4</color>
-    <color name="chip_audio_bg">#1400BFA5</color>
+    <!-- Format chips - Audio (Soft Amber) -->
+    <color name="chip_audio_fill_start">#C9A056</color>
+    <color name="chip_audio_fill_end">#DABB78</color>
+    <color name="chip_audio_stroke">#E8D4A0</color>
+    <color name="chip_audio_bg">#14A67C3F</color>
 
     <!-- Log panel -->
     <color name="log_background">#CCFFFFFF</color>
-    <color name="log_text">#5F6B7A</color>
+    <color name="log_text">#7A6555</color>
+
+    <!-- Bottom navigation -->
+    <color name="bottom_nav_background">#E6FFFCFA</color>
+
+    <!-- Settings -->
+    <color name="settings_divider">#1A000000</color>
 </resources>
