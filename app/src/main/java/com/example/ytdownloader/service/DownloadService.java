@@ -35,7 +35,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
-import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -48,7 +47,7 @@ public class DownloadService extends Service {
 
     private final IBinder binder = new LocalBinder();
     private final ConcurrentHashMap<String, DownloadTask> tasks = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Call> activeCalls = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SegmentedDownloader> activeDownloaders = new ConcurrentHashMap<>();
     private final List<DownloadListener> listeners = new ArrayList<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -121,11 +120,11 @@ public class DownloadService extends Service {
         if (task == null) return;
         if (task.getStatus() != DownloadTask.Status.DOWNLOADING
                 && task.getStatus() != DownloadTask.Status.PENDING) return;
-        // Cancel active HTTP call
-        Call call = activeCalls.get(taskId);
-        if (call != null) {
-            call.cancel();
-            activeCalls.remove(taskId);
+        // Cancel active downloader (saves .seg metadata for resume)
+        SegmentedDownloader dl = activeDownloaders.get(taskId);
+        if (dl != null) {
+            dl.cancel();
+            activeDownloaders.remove(taskId);
         }
         task.setStatus(DownloadTask.Status.PAUSED);
         notifyTaskUpdated(task);
@@ -139,8 +138,7 @@ public class DownloadService extends Service {
                 && task.getStatus() != DownloadTask.Status.FAILED) return;
         task.setStatus(DownloadTask.Status.PENDING);
         task.setErrorMessage(null);
-        task.setDownloadedBytes(0);
-        task.setProgress(0);
+        // Don't reset downloadedBytes/progress — SegmentedDownloader resumes from .seg
         notifyTaskUpdated(task);
         startDownload(task);
         AppLogger.i(TAG, "Resumed: " + task.getTitle());
@@ -149,16 +147,22 @@ public class DownloadService extends Service {
     public void cancelTask(String taskId) {
         DownloadTask task = tasks.get(taskId);
         if (task == null) return;
-        // Cancel active HTTP call
-        Call call = activeCalls.get(taskId);
-        if (call != null) {
-            call.cancel();
-            activeCalls.remove(taskId);
+        // Cancel active downloader
+        SegmentedDownloader dl = activeDownloaders.get(taskId);
+        if (dl != null) {
+            dl.cancel();
+            dl.deleteMetadata();
+            activeDownloaders.remove(taskId);
         }
-        // Clean up partial files
+        // Clean up partial files and .seg metadata
         if (task.getCachePath() != null) {
             File partial = new File(task.getCachePath());
             if (partial.exists()) partial.delete();
+            // Also clean up .seg files
+            File seg = new File(task.getCachePath() + ".seg");
+            if (seg.exists()) seg.delete();
+            File segTmp = new File(task.getCachePath() + ".seg.tmp");
+            if (segTmp.exists()) segTmp.delete();
         }
         task.setStatus(DownloadTask.Status.CANCELLED);
         notifyTaskUpdated(task);
@@ -234,7 +238,7 @@ public class DownloadService extends Service {
                     String ext = task.getDownloadType() == DownloadTask.DownloadType.AUDIO ? "m4a" : "mp4";
                     File outputFile = new File(cacheDir, filename + "." + ext);
                     task.setCachePath(outputFile.getAbsolutePath());
-                    downloadFile(task, task.getDownloadUrl(), outputFile);
+                    downloadFile(task, task.getDownloadUrl(), outputFile, 0);
                     filePath = outputFile.getAbsolutePath();
                 }
 
@@ -253,56 +257,33 @@ public class DownloadService extends Service {
     }
 
     /**
-     * Download a single file via OkHttp with progress tracking.
+     * Download a single file via SegmentedDownloader with multi-segment parallel download.
      */
-    private void downloadFile(DownloadTask task, String url, File outputFile) throws Exception {
-        Request request = new Request.Builder().url(url).build();
-        Call call = httpClient.newCall(request);
-        activeCalls.put(task.getId(), call);
-
-        try (Response response = call.execute()) {
-            if (!response.isSuccessful()) {
-                throw new Exception("HTTP " + response.code() + " " + response.message());
-            }
-
-            ResponseBody body = response.body();
-            if (body == null) throw new Exception("Empty response body");
-
-            long contentLength = body.contentLength();
-            // Set total if not already set (single-file download)
-            if (task.getTotalBytes() == 0 && contentLength > 0) {
-                task.setTotalBytes(contentLength);
-            }
-
-            InputStream in = body.byteStream();
-            FileOutputStream out = new FileOutputStream(outputFile);
-            byte[] buf = new byte[16384];
-            int len;
-            long lastNotifyTime = 0;
-
-            while ((len = in.read(buf)) > 0) {
-                out.write(buf, 0, len);
-                task.setDownloadedBytes(task.getDownloadedBytes() + len);
-
-                long now = System.currentTimeMillis();
-                if (now - lastNotifyTime > 300) {
+    private void downloadFile(DownloadTask task, String url, File outputFile, long baseOffset) throws Exception {
+        SegmentedDownloader dl = new SegmentedDownloader(httpClient, outputFile,
+                (downloadedBytes, singleTotalBytes) -> {
+                    // For segmented downloads, singleTotalBytes is 0 (total already set)
+                    // For single-connection fallback, singleTotalBytes is the content length
+                    if (task.getTotalBytes() == 0 && singleTotalBytes > 0) {
+                        task.setTotalBytes(singleTotalBytes);
+                    }
+                    task.setDownloadedBytes(downloadedBytes);
                     if (task.getTotalBytes() > 0) {
-                        task.setProgress((int) (task.getDownloadedBytes() * 100 / task.getTotalBytes()));
+                        task.setProgress((int) (downloadedBytes * 100 / task.getTotalBytes()));
                     }
                     notifyTaskUpdated(task);
-                    lastNotifyTime = now;
-                }
-            }
-
-            out.close();
-            in.close();
+                });
+        activeDownloaders.put(task.getId(), dl);
+        try {
+            dl.download(url, baseOffset);
         } finally {
-            activeCalls.remove(task.getId());
+            activeDownloaders.remove(task.getId());
         }
     }
 
     /**
      * Download video + audio separately, then merge with MediaMuxer.
+     * Probes content-length of both streams upfront for accurate total progress.
      */
     private String downloadAndMerge(DownloadTask task, String filename, File cacheDir) throws Exception {
         File videoFile = new File(cacheDir, filename + "_v.mp4");
@@ -310,15 +291,25 @@ public class DownloadService extends Service {
         File mergedFile = new File(cacheDir, filename + ".mp4");
         task.setCachePath(mergedFile.getAbsolutePath());
 
-        // Phase 1: Download video stream
+        // Probe content-length for both streams to set accurate total
+        SegmentedDownloader probe = new SegmentedDownloader(httpClient, videoFile, null);
+        long videoSize = probe.probeContentLength(task.getDownloadUrl());
+        long audioSize = probe.probeContentLength(task.getAudioDownloadUrl());
+        if (videoSize > 0 && audioSize > 0) {
+            task.setTotalBytes(videoSize + audioSize);
+            AppLogger.i(TAG, "Total size: video=" + videoSize + " + audio=" + audioSize
+                    + " = " + (videoSize + audioSize));
+        }
+
+        // Phase 1: Download video stream (baseOffset=0)
         AppLogger.i(TAG, "Downloading video stream...");
-        downloadFile(task, task.getDownloadUrl(), videoFile);
+        downloadFile(task, task.getDownloadUrl(), videoFile, 0);
 
         if (task.getStatus() != DownloadTask.Status.DOWNLOADING) return mergedFile.getAbsolutePath();
 
-        // Phase 2: Download audio stream
+        // Phase 2: Download audio stream (baseOffset=videoSize for continuous progress)
         AppLogger.i(TAG, "Downloading audio stream...");
-        downloadFile(task, task.getAudioDownloadUrl(), audioFile);
+        downloadFile(task, task.getAudioDownloadUrl(), audioFile, Math.max(videoSize, 0));
 
         if (task.getStatus() != DownloadTask.Status.DOWNLOADING) return mergedFile.getAbsolutePath();
 

@@ -595,6 +595,21 @@
                         app:elevation="0dp"
                         android:visibility="gone" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearCookies"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/settings_clear_cookies"
+                        android:textColor="@color/button_ghost_text"
+                        android:textAllCaps="false"
+                        android:textSize="13sp"
+                        android:letterSpacing="0"
+                        app:backgroundTint="@color/button_ghost"
+                        app:cornerRadius="14dp"
+                        app:elevation="0dp"
+                        android:visibility="gone" />
+
                     <View
                         android:layout_width="match_parent"
                         android:layout_height="1dp"

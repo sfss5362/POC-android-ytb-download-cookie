@@ -102,6 +102,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private TextView tvCookieStatus;
     private TextView tvCookiePath;
     private MaterialButton btnGoToLogin;
+    private MaterialButton btnClearCookies;
     private MaterialButton btnUpdateYtDlp;
     private TextView tvYtDlpVersion;
 
@@ -196,6 +197,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         tvCookieStatus = findViewById(R.id.tvCookieStatus);
         tvCookiePath = findViewById(R.id.tvCookiePath);
         btnGoToLogin = findViewById(R.id.btnGoToLogin);
+        btnClearCookies = findViewById(R.id.btnClearCookies);
         btnUpdateYtDlp = findViewById(R.id.btnUpdateYtDlp);
         tvYtDlpVersion = findViewById(R.id.tvYtDlpVersion);
 
@@ -356,8 +358,19 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
             }
         });
 
-        // Cookie status + go to login
+        // Cookie status + go to login + clear cookies
         btnGoToLogin.setOnClickListener(v -> bottomNav.setSelectedItemId(R.id.nav_login));
+        btnClearCookies.setOnClickListener(v -> {
+            cookieStorage.clearCookies();
+            CookieManager.getInstance().removeAllCookies(null);
+            CookieManager.getInstance().flush();
+            loginHandled = false;
+            updateCookieStatus();
+            updateLoginStatusBanner(false);
+            youtubeService.refreshDownloader();
+            Toast.makeText(this, R.string.settings_cookies_cleared, Toast.LENGTH_SHORT).show();
+            AppLogger.i(TAG, "Cookies cleared by user.");
+        });
         updateCookieStatus();
 
         // Parser info (java-youtube-downloader, no update needed)
@@ -398,6 +411,7 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
                 super.onPageFinished(view, url);
                 etWebViewUrl.setText(url);
                 checkLoginStatus(url);
+                checkLoginByAvatar(view, url);
                 injectDownloadButtons(view);
             }
 
@@ -800,7 +814,11 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
     private boolean loginHandled = false;
 
     private void updateLoginStatusBanner() {
-        if (cookieStorage.hasCookies()) {
+        updateLoginStatusBanner(cookieStorage.hasCookies());
+    }
+
+    private void updateLoginStatusBanner(boolean loggedIn) {
+        if (loggedIn) {
             tvLoginStatus.setText(R.string.login_status_logged_in);
             tvLoginStatus.setTextColor(ContextCompat.getColor(this, R.color.success));
             tvLoginStatus.setBackgroundColor(0x0A00C853);
@@ -811,19 +829,59 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
         }
     }
 
+    /**
+     * Inject JS to check if user avatar exists on YouTube page.
+     * More reliable than cookie check — detects actual login state.
+     */
+    private void checkLoginByAvatar(WebView view, String url) {
+        if (!url.contains("youtube.com") || url.contains("accounts.google.com")) return;
+
+        view.evaluateJavascript(
+                "(function() {" +
+                "  var btn = document.querySelector('button#avatar-btn, ytm-profile-icon, img.ytm-profile-icon');" +
+                "  return btn ? 'true' : 'false';" +
+                "})()",
+                value -> {
+                    boolean avatarFound = "\"true\"".equals(value);
+                    runOnUiThread(() -> {
+                        updateLoginStatusBanner(avatarFound);
+                        if (avatarFound && !cookieStorage.hasCookies()) {
+                            // Avatar found but no cookies saved — save them now
+                            String cookies = CookieManager.getInstance().getCookie("https://www.youtube.com");
+                            if (cookies != null && cookieStorage.containsRequiredCookies(cookies)) {
+                                cookieStorage.saveCookies(cookies);
+                                updateCookieStatus();
+                                youtubeService.refreshDownloader();
+                                AppLogger.i(TAG, "Login detected via avatar, cookies saved.");
+                            }
+                        } else if (!avatarFound && cookieStorage.hasCookies()) {
+                            // No avatar but cookies exist — cookies expired, clear them
+                            AppLogger.w(TAG, "Cookies exist but no avatar found, login expired.");
+                            cookieStorage.clearCookies();
+                            updateCookieStatus();
+                            youtubeService.refreshDownloader();
+                        }
+                    });
+                }
+        );
+    }
+
     private void updateCookieStatus() {
-        if (cookieStorage.hasCookies()) {
+        boolean hasCookies = cookieStorage.hasCookies();
+        if (hasCookies) {
             tvCookieStatus.setText(R.string.settings_cookie_logged_in);
             tvCookieStatus.setTextColor(ContextCompat.getColor(this, R.color.success));
             File cookieFile = new File(getCacheDir(), "cookies.txt");
             tvCookiePath.setText(cookieFile.getAbsolutePath());
             tvCookiePath.setVisibility(View.VISIBLE);
             btnGoToLogin.setVisibility(View.GONE);
+            btnClearCookies.setVisibility(View.VISIBLE);
         } else {
             tvCookieStatus.setText(R.string.settings_cookie_not_logged_in);
             tvCookieStatus.setTextColor(ContextCompat.getColor(this, R.color.on_surface_secondary));
             tvCookiePath.setVisibility(View.GONE);
             btnGoToLogin.setVisibility(View.VISIBLE);
+            btnClearCookies.setVisibility(View.GONE);
         }
     }
 

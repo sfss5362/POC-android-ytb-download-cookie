@@ -40,6 +40,7 @@
     <string name="settings_go_to_login">Go to Login</string>
     <string name="settings_ytdlp_version">yt-dlp Version</string>
     <string name="settings_update_ytdlp">Update</string>
+    <string name="settings_clear_cookies">Clear Cookies</string>
     <string name="settings_cookies_cleared">Cookies cleared</string>
 
     <!-- Login status -->

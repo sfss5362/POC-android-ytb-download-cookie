@@ -229,7 +229,7 @@ public class YoutubeService {
                 Map<Integer, VideoInfo.FormatOption> audioDedup = new HashMap<>();
                 if (audioFormats != null) {
                     for (AudioFormat f : audioFormats) {
-                        int bitrate = f.averageBitrate() != null ? f.averageBitrate() : 0;
+                        int bitrate = f.averageBitrate() != null ? f.averageBitrate() / 1000 : 0;
                         if (bitrate <= 0) {
                             bitrate = f.bitrate() != null ? f.bitrate() / 1000 : 0;
                         }
