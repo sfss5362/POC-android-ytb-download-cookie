@@ -831,39 +831,40 @@ public class MainActivity extends AppCompatActivity implements DownloadService.D
 
     /**
      * Inject JS to check if user avatar exists on YouTube page.
-     * More reliable than cookie check — detects actual login state.
+     * Delayed 2s because YouTube is a SPA — avatar renders after onPageFinished.
+     * Only updates UI banner; never auto-clears cookies (user must clear manually).
      */
     private void checkLoginByAvatar(WebView view, String url) {
         if (!url.contains("youtube.com") || url.contains("accounts.google.com")) return;
 
-        view.evaluateJavascript(
-                "(function() {" +
-                "  var btn = document.querySelector('button#avatar-btn, ytm-profile-icon, img.ytm-profile-icon');" +
-                "  return btn ? 'true' : 'false';" +
-                "})()",
-                value -> {
-                    boolean avatarFound = "\"true\"".equals(value);
-                    runOnUiThread(() -> {
-                        updateLoginStatusBanner(avatarFound);
-                        if (avatarFound && !cookieStorage.hasCookies()) {
-                            // Avatar found but no cookies saved — save them now
-                            String cookies = CookieManager.getInstance().getCookie("https://www.youtube.com");
-                            if (cookies != null && cookieStorage.containsRequiredCookies(cookies)) {
-                                cookieStorage.saveCookies(cookies);
-                                updateCookieStatus();
-                                youtubeService.refreshDownloader();
-                                AppLogger.i(TAG, "Login detected via avatar, cookies saved.");
+        // Delay to let YouTube SPA render the avatar element
+        view.postDelayed(() -> {
+            view.evaluateJavascript(
+                    "(function() {" +
+                    "  var btn = document.querySelector('button#avatar-btn, ytm-profile-icon, img.ytm-profile-icon');" +
+                    "  return btn ? 'true' : 'false';" +
+                    "})()",
+                    value -> {
+                        boolean avatarFound = "\"true\"".equals(value);
+                        runOnUiThread(() -> {
+                            updateLoginStatusBanner(avatarFound);
+                            if (avatarFound && !cookieStorage.hasCookies()) {
+                                // Avatar found but no cookies saved — save them now
+                                String cookies = CookieManager.getInstance().getCookie("https://www.youtube.com");
+                                if (cookies != null && cookieStorage.containsRequiredCookies(cookies)) {
+                                    cookieStorage.saveCookies(cookies);
+                                    updateCookieStatus();
+                                    youtubeService.refreshDownloader();
+                                    AppLogger.i(TAG, "Login detected via avatar, cookies saved.");
+                                }
                             }
-                        } else if (!avatarFound && cookieStorage.hasCookies()) {
-                            // No avatar but cookies exist — cookies expired, clear them
-                            AppLogger.w(TAG, "Cookies exist but no avatar found, login expired.");
-                            cookieStorage.clearCookies();
-                            updateCookieStatus();
-                            youtubeService.refreshDownloader();
-                        }
-                    });
-                }
-        );
+                            // Don't auto-clear cookies when avatar not found —
+                            // SPA may not have rendered yet, or page may not have avatar.
+                            // User can clear cookies manually from Settings.
+                        });
+                    }
+            );
+        }, 2000);
     }
 
     private void updateCookieStatus() {
